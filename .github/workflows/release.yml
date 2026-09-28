@@ -1,0 +1,122 @@
+name: Android release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out app and DubLift source
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: DubLift/go.mod
+          cache-dependency-path: DubLift/go.sum
+
+      - name: Install Android SDK and NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.1 ndk;27.2.12479018'
+
+      - name: Derive Android version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo 'Release tags must have the form vMAJOR.MINOR.PATCH.' >&2
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]}
+          minor=${BASH_REMATCH[2]}
+          patch=${BASH_REMATCH[3]}
+          if (( 10#$minor > 999 || 10#$patch > 999 )); then
+            echo 'Minor and patch versions must be below 1000.' >&2
+            exit 1
+          fi
+          code=$((10#$major * 1000000 + 10#$minor * 1000 + 10#$patch))
+          if (( code < 1 || code > 2100000000 )); then
+            echo 'Calculated Android versionCode is outside the supported range.' >&2
+            exit 1
+          fi
+          echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild DubLift, FFmpeg, ffprobe and unsigned APK
+        env:
+          RELEASE_NAME: ${{ steps.version.outputs.name }}
+          RELEASE_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew --no-daemon assembleRelease -PreleaseVersionName="$RELEASE_NAME" -PreleaseVersionCode="$RELEASE_CODE"
+
+      - name: Sign and verify release APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!value}" ]]; then
+              echo "Missing repository secret: $value" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/dublift-release.jks"
+          mkdir -p release
+          "$ANDROID_HOME/build-tools/35.0.1/zipalign" -p -f 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$RUNNER_TEMP/dublift-aligned.apk"
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" sign \
+            --ks "$RUNNER_TEMP/dublift-release.jks" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out release/DubLift-arm64.apk "$RUNNER_TEMP/dublift-aligned.apk"
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify release/DubLift-arm64.apk
+
+      - name: Package rebuilt native executables and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          native=app/build/generated/jniLibs/arm64-v8a
+          mkdir -p release/native
+          install -m 755 "$native/libdublift.so" release/native/dublift
+          install -m 755 "$native/libffmpeg.so" release/native/ffmpeg
+          install -m 755 "$native/libffprobe.so" release/native/ffprobe
+          (cd release/native && zip -9 -q ../DubLift-native-android-arm64.zip dublift ffmpeg ffprobe)
+          (cd release && sha256sum DubLift-arm64.apk DubLift-native-android-arm64.zip > SHA256SUMS)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(release/DubLift-arm64.apk release/DubLift-native-android-arm64.zip release/SHA256SUMS)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --verify-tag --generate-notes
+          fi
