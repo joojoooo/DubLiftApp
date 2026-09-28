@@ -44,12 +44,14 @@ public final class MainActivity extends Activity {
     private final ExecutorService checks = Executors.newSingleThreadExecutor();
     private WebView webView;
     private LinearLayout dock;
+    private LinearLayout serverToggle;
     private GradientDrawable statusShape;
     private View statusControl;
     private boolean dockHidden;
     private int scrollTravel;
     private boolean dashboardLoaded;
     private boolean active;
+    private boolean serverEnabled = true;
     private String serverStatus = "Server starting";
 
     @Override public void onCreate(Bundle state) {
@@ -162,18 +164,23 @@ public final class MainActivity extends Activity {
         battery.setOnClickListener(v -> requestBatteryExemption());
         dock.addView(battery, new LinearLayout.LayoutParams(dp(66), -1));
 
-        View stop = dockButton(R.drawable.ic_stop, "Stop", STOPPED);
-        stop.setOnClickListener(v -> {
-            startService(new Intent(this, DubLiftService.class).setAction(DubLiftService.ACTION_STOP));
-            dashboardLoaded = false;
-            webView.loadUrl("about:blank");
-            setServerStatus("Server stopped", STOPPED);
+        serverToggle = dockButton(R.drawable.ic_stop, "Stop", STOPPED);
+        serverToggle.setOnClickListener(v -> {
+            if (serverEnabled) {
+                startService(new Intent(this, DubLiftService.class).setAction(DubLiftService.ACTION_STOP));
+                dashboardLoaded = false;
+                webView.loadUrl("about:blank");
+                setServerStatus("Server stopped", STOPPED);
+                setServerToggle(false);
+            } else {
+                startServer(DubLiftService.ACTION_START);
+            }
             showDock();
         });
-        dock.addView(stop, new LinearLayout.LayoutParams(dp(66), -1));
+        dock.addView(serverToggle, new LinearLayout.LayoutParams(dp(66), -1));
     }
 
-    private View dockButton(int icon, String label, int color) {
+    private LinearLayout dockButton(int icon, String label, int color) {
         LinearLayout button = new LinearLayout(this);
         button.setOrientation(LinearLayout.VERTICAL);
         button.setGravity(Gravity.CENTER);
@@ -197,6 +204,20 @@ public final class MainActivity extends Activity {
         captionLayout.topMargin = dp(3);
         button.addView(caption, captionLayout);
         return button;
+    }
+
+    private void setServerToggle(boolean enabled) {
+        serverEnabled = enabled;
+        String label = enabled ? "Stop" : "Start";
+        int color = enabled ? STOPPED : ACCENT;
+        ImageView icon = (ImageView) serverToggle.getChildAt(0);
+        TextView caption = (TextView) serverToggle.getChildAt(1);
+        icon.setImageResource(enabled ? R.drawable.ic_stop : R.drawable.ic_start);
+        icon.setImageTintList(ColorStateList.valueOf(color));
+        caption.setText(label);
+        caption.setTextColor(color);
+        serverToggle.setContentDescription(label);
+        serverToggle.setTooltipText(label);
     }
 
     private void hideDock() {
@@ -231,6 +252,7 @@ public final class MainActivity extends Activity {
     private void startServer(String action) {
         startForegroundService(new Intent(this, DubLiftService.class).setAction(action));
         setServerStatus("Server starting", Color.rgb(234, 181, 91));
+        setServerToggle(true);
     }
 
     private void checkServer() {
@@ -240,14 +262,21 @@ public final class MainActivity extends Activity {
                 if (!active) return;
                 if (!DubLiftService.isEnabled(this)) {
                     setServerStatus("Server stopped", STOPPED);
+                    setServerToggle(false);
+                    if (dashboardLoaded) {
+                        dashboardLoaded = false;
+                        webView.loadUrl("about:blank");
+                    }
                 } else if (ready) {
                     setServerStatus("Server running at 127.0.0.1:7000", ACCENT);
+                    setServerToggle(true);
                     if (!dashboardLoaded) {
                         dashboardLoaded = true;
                         webView.loadUrl(DASHBOARD);
                     }
                 } else {
                     setServerStatus("Server starting", Color.rgb(234, 181, 91));
+                    setServerToggle(true);
                 }
                 handler.postDelayed(this::checkServer, 2000);
             });
