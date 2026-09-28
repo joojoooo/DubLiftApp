@@ -11,21 +11,22 @@ if [[ ! -f "$source_root/go.mod" ]]; then
   exit 1
 fi
 
+sdk_root=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-"$HOME/.local/share/dublift-android-sdk"}}
+ndk_root=${ANDROID_NDK_HOME:-"$sdk_root/ndk/27.2.12479018"}
+toolchain="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64"
+android_cc="$toolchain/bin/aarch64-linux-android26-clang"
+if [[ ! -x "$android_cc" ]]; then
+  echo "Android NDK r27c not found at $ndk_root (set ANDROID_NDK_HOME)." >&2
+  exit 1
+fi
+
 echo 'Building DubLift for Android ARM64...'
-(cd "$source_root" && CGO_ENABLED=0 GOOS=android GOARCH=arm64 \
+(cd "$source_root" && CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$android_cc" \
   go build -trimpath -ldflags='-s -w' -o "$output/libdublift.so" ./cmd/dublift)
 
 if [[ -s "$output/libffmpeg.so" && -s "$output/libffprobe.so" && ${REBUILD_FFMPEG:-0} != 1 ]]; then
   echo 'Using previously built FFmpeg and ffprobe.'
   exit 0
-fi
-
-sdk_root=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-"$HOME/.local/share/dublift-android-sdk"}}
-ndk_root=${ANDROID_NDK_HOME:-"$sdk_root/ndk/27.2.12479018"}
-toolchain="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64"
-if [[ ! -x "$toolchain/bin/aarch64-linux-android26-clang" ]]; then
-  echo "Android NDK r27c not found at $ndk_root (set ANDROID_NDK_HOME)." >&2
-  exit 1
 fi
 
 version=7.1.2
