@@ -5,6 +5,7 @@ release/
 local.properties
 *.keystore
 *.jks
+release-signing-secrets.env
 *.apk
 *.aab
 *.so
