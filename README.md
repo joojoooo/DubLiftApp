@@ -28,6 +28,8 @@ The build refuses to use a sibling checkout if the submodule is missing.
 
 The `gradlew` shell script downloads Gradle 8.13 and verifies its SHA-256 before running it. The repository contains no Gradle wrapper JAR, native executables, or APK. The local debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk` and is ignored by Git.
 
+After changing `DubLift/internal/dublift/web/icon.svg`, run `python3 scripts/generate-icons.py` to refresh the launcher, themed, and notification icons. The generator needs ImageMagick's `convert` command and Python's Pillow package; generated Android resources are checked into the app repository.
+
 The `prepareNative` build step compiles the submodule's Go source for Android ARM64 with the NDK C toolchain so DNS uses Android's network resolver. It also downloads checksum-verified FFmpeg 7.1.2 source when needed and builds `ffmpeg` and `ffprobe` with the Android NDK. Native executables are generated only under `app/build/` and packaged under `lib/arm64-v8a/` with legacy extraction enabled, so they can be executed from Android's native library directory. FFmpeg is built with NEON, internal codecs and LGPL options; it needs no Termux libraries. MediaCodec is omitted because DubLift copies video and uses FFmpeg's native AAC encoder; its current FFmpeg commands would not select MediaCodec decoding. To force a fresh FFmpeg build, run `REBUILD_FFMPEG=1 ./scripts/prepare-native.sh`.
 
 DubLift's private configuration, alignment records, key, and log are stored under the app's private files directory. Uninstalling the app removes them. Local debug APKs use each developer's debug signing key and cannot update a release APK.

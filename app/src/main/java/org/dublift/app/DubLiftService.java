@@ -82,7 +82,7 @@ public final class DubLiftService extends Service {
         PendingIntent stopIntent = PendingIntent.getService(this, 2, stop,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_dublift)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("DubLift")
                 .setContentText(status)
                 .setContentIntent(openIntent)
