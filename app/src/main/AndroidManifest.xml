@@ -13,7 +13,7 @@
 
     <application
         android:label="DubLift"
-        android:icon="@drawable/ic_dublift"
+        android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true"
