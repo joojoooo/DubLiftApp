@@ -26,6 +26,20 @@ The build refuses to use a sibling checkout if the submodule is missing.
 ./gradlew assembleDebug
 ```
 
+To fetch the latest commit from DubLift's `main` branch and build a debug APK in one step, run:
+
+```sh
+./scripts/update-dublift-and-build-debug.sh
+```
+
+The script initializes the submodule if needed and stops if it contains local changes. It prints the APK path when the build succeeds. The updated submodule pointer remains in your working tree; commit it if you want future builds or releases to use that DubLift revision.
+
+To build from the current DubLift checkout, including uncommitted source changes, without fetching or changing the submodule, run:
+
+```sh
+./scripts/update-dublift-and-build-debug.sh --no-update
+```
+
 The `gradlew` shell script downloads Gradle 8.13 and verifies its SHA-256 before running it. The repository contains no Gradle wrapper JAR, native executables, or APK. The local debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk` and is ignored by Git.
 
 After changing `DubLift/internal/dublift/web/icon.svg`, run `python3 scripts/generate-icons.py` to refresh the launcher, themed, and notification icons. The generator needs ImageMagick's `convert` command and Python's Pillow package; generated Android resources are checked into the app repository.
