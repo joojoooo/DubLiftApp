@@ -3,7 +3,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 submodule="$root/DubLift"
-apk="$root/app/build/outputs/apk/debug/app-debug.apk"
+apk_dir="$root/app/build/outputs/apk/debug"
 
 usage() {
   echo "Usage: $0 [--no-update]"
@@ -43,12 +43,17 @@ else
   latest_commit=$(git -C "$submodule" rev-parse HEAD)
 fi
 
-echo "Building debug APK with DubLift $latest_commit..."
+echo "Building ARM64 and ARMv7 debug APKs with DubLift $latest_commit..."
 (cd "$root" && ./gradlew assembleDebug)
 
-if [[ ! -s "$apk" ]]; then
-  echo "Build completed, but the debug APK is missing: $apk" >&2
-  exit 1
-fi
+for abi in arm64-v8a armeabi-v7a; do
+  apk="$apk_dir/app-$abi-debug.apk"
+  if [[ ! -s "$apk" ]]; then
+    echo "Build completed, but the $abi debug APK is missing: $apk" >&2
+    exit 1
+  fi
+done
 
-echo "Debug APK: $apk"
+for abi in arm64-v8a armeabi-v7a; do
+  echo "Debug APK ($abi): $apk_dir/app-$abi-debug.apk"
+done
