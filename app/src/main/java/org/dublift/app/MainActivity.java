@@ -135,7 +135,6 @@ public final class MainActivity extends Activity {
         FrameLayout statusArea = new FrameLayout(this);
         statusArea.setContentDescription(serverStatus);
         statusArea.setOnClickListener(v -> Toast.makeText(this, serverStatus, Toast.LENGTH_SHORT).show());
-        statusArea.setTooltipText("Server status");
         statusControl = statusArea;
         View dot = new View(this);
         statusShape = new GradientDrawable();
@@ -185,7 +184,6 @@ public final class MainActivity extends Activity {
         button.setOrientation(LinearLayout.VERTICAL);
         button.setGravity(Gravity.CENTER);
         button.setContentDescription(label);
-        button.setTooltipText(label);
         TypedValue ripple = new TypedValue();
         getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
         button.setBackgroundResource(ripple.resourceId);
@@ -217,7 +215,6 @@ public final class MainActivity extends Activity {
         caption.setText(label);
         caption.setTextColor(color);
         serverToggle.setContentDescription(label);
-        serverToggle.setTooltipText(label);
     }
 
     private void hideDock() {
@@ -250,7 +247,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startServer(String action) {
-        startForegroundService(new Intent(this, DubLiftService.class).setAction(action));
+        AndroidCompat.startServer(this, new Intent(this, DubLiftService.class).setAction(action));
         setServerStatus("Server starting", Color.rgb(234, 181, 91));
         setServerToggle(true);
     }

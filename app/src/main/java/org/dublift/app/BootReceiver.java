@@ -8,7 +8,7 @@ public final class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         if (DubLiftService.isEnabled(context)) {
             Intent service = new Intent(context, DubLiftService.class).setAction(DubLiftService.ACTION_START);
-            context.startForegroundService(service);
+            AndroidCompat.startServer(context, service);
         }
     }
 }

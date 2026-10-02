@@ -15,12 +15,13 @@ import android.os.PowerManager;
 
 import org.json.JSONObject;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -44,10 +45,12 @@ public final class DubLiftService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL, "DubLift server", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Keeps the DubLift media addon available in the background");
-        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL, "DubLift server", NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Keeps the DubLift media addon available in the background");
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        }
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -81,7 +84,15 @@ public final class DubLiftService extends Service {
         Intent stop = new Intent(this, DubLiftService.class).setAction(ACTION_STOP);
         PendingIntent stopIntent = PendingIntent.getService(this, 2, stop,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification notification = new Notification.Builder(this, CHANNEL)
+        Notification.Builder builder;
+        if (Build.VERSION.SDK_INT >= 26) {
+            builder = new Notification.Builder(this, CHANNEL);
+        } else {
+            builder = new Notification.Builder(this)
+                    .setPriority(Notification.PRIORITY_LOW)
+                    .setOnlyAlertOnce(true);
+        }
+        Notification notification = builder
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("DubLift")
                 .setContentText(status)
@@ -114,6 +125,7 @@ public final class DubLiftService extends Service {
 
     private void runServerLoop() {
         while (enabled && !Thread.currentThread().isInterrupted()) {
+            Process process = null;
             try {
                 if (healthy()) {
                     showForeground("Available at http://127.0.0.1:7000");
@@ -133,32 +145,42 @@ public final class DubLiftService extends Service {
                 }
                 File config = new File(dataDir, "config.json");
                 prepareConfig(config, ffmpeg, ffprobe);
-                ProcessBuilder builder = new ProcessBuilder(go.getAbsolutePath(),
+                // Shell redirection works on API 25; exec preserves process control for Stop/Restart.
+                ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c",
+                        "exec \"$@\" > server.log 2>&1", "dublift", go.getAbsolutePath(),
                         "-config", config.getAbsolutePath(), "-listen", "0.0.0.0:7000");
                 builder.directory(dataDir);
                 builder.environment().put("LD_LIBRARY_PATH", binaryDir.getAbsolutePath());
                 builder.redirectErrorStream(true);
-                builder.redirectOutput(new File(dataDir, "server.log"));
                 showForeground("Starting local server…");
-                server = builder.start();
+                process = builder.start();
+                server = process;
                 long lastHealthy = System.currentTimeMillis();
-                while (enabled && server.isAlive()) {
+                while (enabled && AndroidCompat.isAlive(process)) {
                     if (healthy()) {
                         lastHealthy = System.currentTimeMillis();
                         showForeground("Available at http://127.0.0.1:7000");
                     } else if (System.currentTimeMillis() - lastHealthy > 30000) {
-                        server.destroy();
+                        process.destroy();
                         break;
                     }
-                    server.waitFor(5, TimeUnit.SECONDS);
+                    AndroidCompat.waitFor(process, 5, TimeUnit.SECONDS);
                 }
-                if (server.isAlive()) server.destroy();
-                server = null;
                 if (enabled) showForeground("Server stopped; restarting…");
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
             } catch (Exception e) {
                 getSharedPreferences("runtime", MODE_PRIVATE).edit()
                         .putString("lastError", e.toString()).apply();
                 if (enabled) showForeground("Server error; retrying…");
+            } finally {
+                if (process != null) {
+                    if (AndroidCompat.isAlive(process)) process.destroy();
+                    closeQuietly(process.getInputStream());
+                    closeQuietly(process.getErrorStream());
+                    closeQuietly(process.getOutputStream());
+                    server = null;
+                }
             }
             try { Thread.sleep(3000); } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -166,9 +188,13 @@ public final class DubLiftService extends Service {
         }
     }
 
+    private static void closeQuietly(Closeable stream) {
+        try { stream.close(); } catch (IOException ignored) {}
+    }
+
     private void prepareConfig(File config, File ffmpeg, File ffprobe) throws Exception {
         JSONObject settings = config.exists()
-                ? new JSONObject(new String(Files.readAllBytes(config.toPath()), StandardCharsets.UTF_8))
+                ? new JSONObject(AndroidCompat.readUtf8(config))
                 : new JSONObject();
         settings.put("ffmpeg", ffmpeg.getAbsolutePath());
         settings.put("ffprobe", ffprobe.getAbsolutePath());

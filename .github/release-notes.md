@@ -1,6 +1,6 @@
 ## Download
 
-Requires **Android 8.0 or newer**. Download one APK from **Assets** below:
+Requires **Android 7.1 (API 25) or newer**. Download one APK from **Assets** below:
 
 | APK | Device |
 | --- | --- |

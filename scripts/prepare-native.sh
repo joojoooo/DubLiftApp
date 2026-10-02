@@ -15,6 +15,7 @@ ndk_root=${ANDROID_NDK_HOME:-"$sdk_root/ndk/27.2.12479018"}
 toolchain="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64"
 
 version=7.1.2
+min_api=25
 archive="$root/build/native/ffmpeg-$version.tar.xz"
 expected=089bc60fb59d6aecc5d994ff530fd0dcb3ee39aa55867849a2bbc4e555f9c304
 source="$root/build/native/ffmpeg-$version"
@@ -27,17 +28,18 @@ build_native() {
   case "$abi" in
     arm64-v8a)
       goarch=arm64
-      compiler=aarch64-linux-android26-clang
+      compiler=aarch64-linux-android${min_api}-clang
       ffmpeg_arch=aarch64
       ;;
     armeabi-v7a)
       goarch=arm
-      compiler=armv7a-linux-androideabi26-clang
+      compiler=armv7a-linux-androideabi${min_api}-clang
       ffmpeg_arch=arm
       ffmpeg_flags=(--cpu=armv7-a --extra-cflags='-mfpu=neon -mfloat-abi=softfp')
       ;;
   esac
   local android_cc="$toolchain/bin/$compiler"
+  local api_stamp="$output/.ffmpeg-api"
   if [[ ! -x "$android_cc" ]]; then
     echo "Android NDK r27c compiler not found at $android_cc (set ANDROID_NDK_HOME)." >&2
     exit 1
@@ -48,10 +50,16 @@ build_native() {
   (cd "$source_root" && CGO_ENABLED=1 GOOS=android GOARCH="$goarch" GOARM=7 CC="$android_cc" \
     go build -trimpath -ldflags='-s -w' -o "$output/libdublift.so" ./cmd/dublift)
 
-  if [[ -s "$output/libffmpeg.so" && -s "$output/libffprobe.so" && ${REBUILD_FFMPEG:-0} != 1 ]]; then
-    echo "Using previously built FFmpeg and ffprobe for $abi."
+  if [[ -s "$output/libffmpeg.so" && -s "$output/libffprobe.so" &&
+        -f "$api_stamp" && ${REBUILD_FFMPEG:-0} != 1 ]] &&
+      [[ "$(cat "$api_stamp")" == "$min_api" ]]; then
+    echo "Using previously built API $min_api FFmpeg and ffprobe for $abi."
     return
   fi
+
+  # Discard old API 26 binaries and objects before rebuilding.
+  rm -f "$api_stamp" "$output/libffmpeg.so" "$output/libffprobe.so"
+  rm -rf "$build"
 
   if [[ ! -f "$archive" ]]; then
     local cached="$sdk_root/downloads/ffmpeg-$version.tar.xz"
@@ -90,6 +98,7 @@ build_native() {
     cp ffprobe "$output/libffprobe.so"
     "$toolchain/bin/llvm-strip" "$output/libffmpeg.so" "$output/libffprobe.so"
   )
+  printf '%s\n' "$min_api" > "$api_stamp"
 }
 
 for abi in arm64-v8a armeabi-v7a; do

@@ -6,7 +6,7 @@ The dashboard fills the screen. A small floating dock has equal-size Restart, Ba
 
 ## Install
 
-Download `DubLift-arm64.apk` for an ARM64 (64-bit) device or `DubLift-armv7.apk` for an ARMv7 (32-bit) device from this repository's GitHub Releases page. Both require Android 8.0 or newer. Release APKs use a persistent signing key so updates can be installed over previous releases. Open DubLift once after installation and allow notifications and the battery exemption when prompted. The app needs no Termux installation.
+Download `DubLift-arm64.apk` for an ARM64 (64-bit) device or `DubLift-armv7.apk` for an ARMv7 (32-bit) device from this repository's GitHub Releases page. Both require Android 7.1 (API 25) or newer. Release APKs use a persistent signing key so updates can be installed over previous releases. Open DubLift once after installation and allow notifications and the battery exemption when prompted. The app needs no Termux installation. On Android 7.1, update Chrome or Android System WebView if the dashboard does not load.
 
 The dashboard's copied manifest URL uses the address by which the dashboard was opened (`127.0.0.1` inside the app). To use another device on the LAN, substitute the phone's LAN IP or set DubLift's Public URL in its dashboard settings. DubLift has no LAN authentication, so use it on trusted networks.
 
@@ -58,6 +58,6 @@ Push a tag such as `v1.0.0` to trigger the workflow. Tags must use `vMAJOR.MINOR
 
 ## Verification
 
-The APK build verifies Java compilation and native packaging. This workspace has no connected Android device, so the foreground service, executable launch, WebView, boot restart, and media playback still need an on-device check. On a device, open the app and confirm a green status dot in the floating dock, **FFmpeg ready** in the dashboard, and a successful `http://127.0.0.1:7000/healthz` response. Then test a real stream through Stremio/Nuvio, background the app, lock the screen, and verify playback continues.
+The APK build verifies Java compilation and native packaging. To check an APK on a device, open the app and confirm a green status dot in the floating dock, **FFmpeg ready** in the dashboard, and a successful `http://127.0.0.1:7000/healthz` response. Then test a real stream through Stremio/Nuvio, background the app, lock the screen, and verify playback continues.
 
 See [third-party notices](THIRD_PARTY.md) for FFmpeg source and licensing.
