@@ -151,6 +151,7 @@ public final class DubLiftService extends Service {
                         "-config", config.getAbsolutePath(), "-listen", "0.0.0.0:7000");
                 builder.directory(dataDir);
                 builder.environment().put("LD_LIBRARY_PATH", binaryDir.getAbsolutePath());
+                builder.environment().put("TMPDIR", getCacheDir().getAbsolutePath());
                 builder.redirectErrorStream(true);
                 showForeground("Starting local server…");
                 process = builder.start();

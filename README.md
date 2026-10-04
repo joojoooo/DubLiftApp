@@ -12,7 +12,7 @@ The dashboard's copied manifest URL uses the address by which the dashboard was 
 
 ## Rebuild
 
-Requirements: JDK 17+, Android SDK platform 35 and build tools 35.0.1, Android NDK r27c, and the Go version specified by [DubLift's go.mod](https://github.com/joojoooo/DubLift/blob/main/go.mod). Set `ANDROID_HOME` to the SDK directory and `ANDROID_NDK_HOME` if the NDK is elsewhere. Clone with submodules or initialize them after cloning:
+Requirements: JDK 17+, CMake, Make, pkg-config, curl, Android SDK platform 35 and build tools 35.0.1, Android NDK r27c, and the Go version specified by [DubLift's go.mod](https://github.com/joojoooo/DubLift/blob/main/go.mod). Set `ANDROID_HOME` to the SDK directory and `ANDROID_NDK_HOME` if the NDK is elsewhere. Clone with submodules or initialize them after cloning:
 
 ```sh
 git clone --recurse-submodules YOUR-APP-REPOSITORY-URL
@@ -44,7 +44,7 @@ The `gradlew` shell script downloads Gradle 8.13 and verifies its SHA-256 before
 
 After changing `DubLift/internal/dublift/web/icon.svg`, run `python3 scripts/generate-icons.py` to refresh the launcher, themed, and notification icons. The generator needs ImageMagick's `convert` command and Python's Pillow package; generated Android resources are checked into the app repository.
 
-The `prepareNative` build step compiles the submodule's Go source for Android ARM64 and ARMv7 (`GOARCH=arm`, `GOARM=7`) with the NDK C toolchain so DNS uses Android's network resolver. It also downloads checksum-verified FFmpeg 7.1.2 source when needed and builds `ffmpeg` and `ffprobe` with the Android NDK in separate per-ABI build directories. Native executables are generated only under `app/build/` and packaged under `lib/arm64-v8a/` or `lib/armeabi-v7a/` in the matching APK, with legacy extraction enabled so they can be executed from Android's native library directory. FFmpeg is built with NEON, internal codecs and LGPL options; it needs no Termux libraries. MediaCodec is omitted because DubLift copies video and uses FFmpeg's native AAC encoder; its current FFmpeg commands would not select MediaCodec decoding. To force fresh FFmpeg builds for both ABIs, run `REBUILD_FFMPEG=1 ./scripts/prepare-native.sh`.
+The `prepareNative` build step compiles the submodule's Go source for Android ARM64 and ARMv7 (`GOARCH=arm`, `GOARM=7`) with the NDK C toolchain so DNS uses Android's network resolver. It downloads checksum-verified FFmpeg 7.1.2, FreeType, HarfBuzz, and OpenH264 source when needed and builds `ffmpeg` and `ffprobe` with the Android NDK in separate per-ABI build directories. Native executables are generated only under `app/build/` and packaged under `lib/arm64-v8a/` or `lib/armeabi-v7a/` in the matching APK, with legacy extraction enabled so they can be executed from Android's native library directory. FFmpeg's `lavfi` input and `drawtext` filter generate playback failure screens with Android system fonts; OpenH264 encodes their H.264 video. The build remains LGPL compatible and needs no Termux libraries. MediaCodec is omitted because DubLift copies source video and uses FFmpeg's native AAC encoder. To force fresh FFmpeg builds for both ABIs, run `REBUILD_FFMPEG=1 ./scripts/prepare-native.sh`.
 
 DubLift's private configuration, alignment records, key, and log are stored under the app's private files directory. Uninstalling the app removes them. Local debug APKs use each developer's debug signing key and cannot update a release APK.
 
@@ -60,4 +60,8 @@ Push a tag such as `v1.0.0` to trigger the workflow. Tags must use `vMAJOR.MINOR
 
 The APK build verifies Java compilation and native packaging. To check an APK on a device, open the app and confirm a green status dot in the floating dock, **FFmpeg ready** in the dashboard, and a successful `http://127.0.0.1:7000/healthz` response. Then test a real stream through Stremio/Nuvio, background the app, lock the screen, and verify playback continues.
 
-See [third-party notices](THIRD_PARTY.md) for FFmpeg source and licensing.
+## License
+
+DubLiftApp is licensed under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`). The DubLift submodule is separately licensed under [GPLv3](DubLift/LICENSE).
+
+Third-party components retain their respective licenses. See [third-party notices](THIRD_PARTY.md) for their source and licensing details.
