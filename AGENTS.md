@@ -62,8 +62,8 @@
 - Run `./gradlew assembleDebug lint test` for Android changes; use
   `./gradlew assembleRelease` for release packaging changes. Follow
   [validation](docs/validation.md) for APK inspection and device checks.
-  Gradle test tasks currently have no checked-in Android test sources; report
-  that limitation and any checks that could not run.
+  Gradle JVM tests cover release-update parsing and version comparison; there
+  are no Android instrumentation tests. Report device checks that could not run.
 - Keep `README.md` concise and focused on Android users. Maintain one canonical
   guide for each of building, releasing, and validation; link instead of
   duplicating procedures. Keep `.github/release-notes.md` a short download and

@@ -8,6 +8,7 @@ Run commands from the app repository root with the
 ```sh
 ./gradlew assembleDebug lint test
 ./gradlew assembleRelease
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'
 bash -n gradlew scripts/prepare-native.sh scripts/update-dublift-and-build-debug.sh
 git diff --check
 ```
@@ -19,8 +20,10 @@ reuses FFmpeg when its stamps match; see [building](building.md) to force a
 fresh native rebuild after toolchain changes.
 
 Lint reports appear under `app/build/reports/`. Review warnings as well as
-errors. There are currently no checked-in Android unit or instrumentation
-test sources, so successful Gradle `test` tasks do not prove runtime behavior.
+errors. Gradle's JVM unit tests cover version comparison and release/changelog
+parsing; the Python tests cover the release-note commit range, first releases,
+and reruns. There are no Android instrumentation tests, so the popup lifecycle
+and browser handoff still require the device checks below.
 Core server checks belong to [DubLift's validation guide](../DubLift/docs/validation.md).
 
 ## APK inspection
@@ -83,6 +86,16 @@ Use a test device/profile or account for data loss before uninstalling.
 4. Check boot behavior while enabled and after using **Stop**: the receiver
    attempts to restore an enabled server, while a stopped server stays off
    until started again. Record any Android/OEM restrictions.
+5. With a build whose `releaseVersionName` is lower than the latest GitHub
+   release, confirm startup shows a scrollable update popup after the permission
+   screens. Check the installed/available versions and changelog. **Open release
+   page** must open a browser on that release's page without downloading an APK.
+   **Later**, Back, or tapping outside dismisses it for the current launch. Rotate
+   with the popup open and after dismissing it; the pending popup should survive
+   rotation, and a dismissed popup should stay dismissed. Repeat offline and with
+   an equal or newer installed version; the dashboard must still load without an
+   update popup. Debug builds default to `1.0.0`; supply version properties as
+   described in [releasing](releasing.md) when testing against a `0.x` release.
 
 ## Playback, LAN, and background checks
 

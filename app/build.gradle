@@ -49,3 +49,9 @@ tasks.register('prepareNative', Exec) {
     commandLine 'bash', "${rootProject.projectDir}/scripts/prepare-native.sh"
 }
 tasks.named('preBuild').configure { dependsOn 'prepareNative' }
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    // Use real JSON parsing in JVM tests instead of Android's stub methods.
+    testImplementation 'org.json:json:20260814'
+}

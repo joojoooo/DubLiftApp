@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Java
@@ -107,10 +108,10 @@ jobs:
         run: |
           set -euo pipefail
           notes="$RUNNER_TEMP/dublift-release-notes.md"
-          cat .github/release-notes.md > "$notes"
-          printf '\n\n' >> "$notes"
-          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq '.body' >> "$notes"
+          tags="$RUNNER_TEMP/dublift-published-tags.txt"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > "$tags"
+          python3 scripts/generate-release-notes.py "$GITHUB_REF_NAME" --release-tags "$tags" > "$notes"
           assets=(release/DubLift-arm64.apk release/DubLift-armv7.apk)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber

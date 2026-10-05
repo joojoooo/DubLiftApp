@@ -13,3 +13,9 @@ The FFmpeg executables statically link these libraries to render and encode the 
 This software uses the FreeType Project's font engine. Android system fonts are used at runtime; no font files are bundled.
 
 DubLift's Go binary is built from the pinned [DubLift](https://github.com/joojoooo/DubLift) submodule and embeds its Go module dependencies. Their versions and checksums are in the submodule's `go.mod` and `go.sum`.
+
+JVM unit tests use [JUnit 4.13.2](https://github.com/junit-team/junit4/blob/r4.13.2/LICENSE-junit.txt)
+(EPL-1.0), its [Hamcrest Core 1.3](https://github.com/hamcrest/JavaHamcrest/blob/hamcrest-java-1.3/LICENSE.txt)
+dependency (BSD-3-Clause), and [JSON-java 20260814](https://github.com/stleary/JSON-java/blob/20260814/LICENSE)
+(public domain). These are test-only dependencies and are not bundled in the APKs;
+the app uses Android's built-in JSON implementation at runtime.

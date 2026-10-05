@@ -17,6 +17,10 @@ Requires **Android 7.1 (API 25) or newer**. Download the matching APK from
 Open the APK and allow your browser or file manager to install apps if Android
 asks. Install new releases over the existing app to keep your settings.
 
+On startup, DubLift checks for a newer GitHub release and shows its changelog.
+**Open release page** opens your browser so you can choose an APK; downloads
+start only when you select one. **Later** dismisses the prompt for that launch.
+
 ## 🚀 Usage
 
 1. Open **DubLift**. The server starts automatically and loads its dashboard.

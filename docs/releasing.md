@@ -78,7 +78,14 @@ with `apksigner`, and verifies both signatures before publishing:
 - `DubLift-armv7.apk`
 
 The workflow uses its GitHub token with `contents: write` permission.
-Release notes combine the template with GitHub's generated changelog.
+Release notes combine the template with a **Changelog** section containing
+app commit titles since the highest earlier version with a published stable
+release. The first release includes all app commit titles. The workflow fetches
+full Git history and lists published releases before running
+[the notes generator](../scripts/generate-release-notes.py). Reruns exclude the
+current release from the comparison. The app reads this section for its startup
+update popup; keep the `## Changelog` heading and use a new level-two heading
+for any following section.
 Rerunning the workflow replaces the two assets and refreshes the notes on
 an existing release. No generated binaries or APKs belong in Git.
 

@@ -2,6 +2,7 @@ package org.dublift.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -42,6 +43,12 @@ public final class MainActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService checks = Executors.newSingleThreadExecutor();
+    private final ExecutorService updateChecks = Executors.newSingleThreadExecutor();
+    private ReleaseUpdateChecker.Release availableUpdate;
+    private AlertDialog updateDialog;
+    private String installedVersion;
+    private boolean updateCheckComplete;
+    private boolean resumed;
     private WebView webView;
     private LinearLayout dock;
     private LinearLayout serverToggle;
@@ -108,6 +115,20 @@ public final class MainActivity extends Activity {
         dockLayout.bottomMargin = dp(14);
         page.addView(dock, dockLayout);
         setContentView(page);
+
+        if (state != null) {
+            updateCheckComplete = state.getBoolean("updateCheckComplete");
+            String tag = state.getString("updateTag");
+            if (tag != null) {
+                availableUpdate = new ReleaseUpdateChecker.Release(tag, state.getString("updateChangelog", ""));
+            }
+        }
+        try {
+            installedVersion = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            updateCheckComplete = true;
+        }
+        if (!updateCheckComplete) checkForUpdate();
 
         startServer(DubLiftService.ACTION_START);
         active = true;
@@ -177,6 +198,72 @@ public final class MainActivity extends Activity {
             showDock();
         });
         dock.addView(serverToggle, new LinearLayout.LayoutParams(dp(66), -1));
+    }
+
+    private void checkForUpdate() {
+        updateChecks.execute(() -> {
+            ReleaseUpdateChecker.Release release = ReleaseUpdateChecker.check(installedVersion);
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                updateCheckComplete = true;
+                availableUpdate = release;
+                showAvailableUpdate();
+            });
+        });
+    }
+
+    private void showAvailableUpdate() {
+        // Wait until notification/battery permission screens have returned control to the app.
+        if (!resumed || !hasWindowFocus() || isFinishing() || isDestroyed()
+                || availableUpdate == null || updateDialog != null) return;
+        ReleaseUpdateChecker.Release release = availableUpdate;
+        updateDialog = new AlertDialog.Builder(this)
+                .setTitle("DubLift update available")
+                .setMessage("Installed: " + installedVersion + "\nAvailable: " + release.version()
+                        + "\n\nWhat's new\n\n" + release.changelog)
+                .setPositiveButton("Open release page", (dialog, which) -> openReleasePage(release.pageUrl()))
+                .setNegativeButton("Later", null)
+                .create();
+        updateDialog.setOnDismissListener(dialog -> {
+            availableUpdate = null;
+            updateDialog = null;
+        });
+        updateDialog.show();
+    }
+
+    private void openReleasePage(String url) {
+        Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        browser.setSelector(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER));
+        try {
+            startActivity(browser);
+        } catch (ActivityNotFoundException ignored) {
+            Toast.makeText(this, "No browser can open the release page", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        showAvailableUpdate();
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        super.onPause();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) showAvailableUpdate();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putBoolean("updateCheckComplete", updateCheckComplete);
+        if (availableUpdate != null) {
+            state.putString("updateTag", availableUpdate.tag);
+            state.putString("updateChangelog", availableUpdate.changelog);
+        }
     }
 
     private LinearLayout dockButton(int icon, String label, int color) {
@@ -330,6 +417,9 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         active = false;
         checks.shutdownNow();
+        updateChecks.shutdownNow();
+        if (updateDialog != null) updateDialog.dismiss();
+        handler.removeCallbacksAndMessages(null);
         webView.destroy();
         super.onDestroy();
     }
