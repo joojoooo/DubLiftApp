@@ -20,9 +20,10 @@ reuses FFmpeg when its stamps match; see [building](building.md) to force a
 fresh native rebuild after toolchain changes.
 
 Lint reports appear under `app/build/reports/`. Review warnings as well as
-errors. Gradle's JVM unit tests cover version comparison and release/changelog
-parsing; the Python tests cover the release-note commit range, first releases,
-and reruns. There are no Android instrumentation tests, so the popup lifecycle
+errors. Gradle's JVM unit tests cover version comparison, release/changelog
+parsing, and bounded/redacted dashboard diagnostics; the Python tests cover the
+release-note commit range, first releases, and reruns. There are no Android
+instrumentation tests, so the popup lifecycle
 and browser handoff still require the device checks below.
 Core server checks belong to [DubLift's validation guide](../DubLift/docs/validation.md).
 
@@ -112,6 +113,31 @@ Use a test device/profile or account for data loss before uninstalling.
    an equal or newer installed version; the dashboard must still load without an
    update popup. Debug builds default to `1.0.0`; supply version properties as
    described in [releasing](releasing.md) when testing against a `0.x` release.
+6. On a test device without WebView support or with no enabled WebView provider,
+   confirm a native text screen explains why the dashboard cannot be displayed,
+   suggests Chrome or Android System WebView, and shows a selectable dashboard URL
+   using the device's Wi-Fi/Ethernet IPv4 address when available. Open that URL from
+   another device on the same LAN. Check **Restart**, **Stop**, **Start**, Back,
+   rotation, and app reopen; the fallback must stay usable without a WebView. Tap
+   **Open dashboard in external browser** with and without a browser installed; it must
+   open `http://127.0.0.1:7000/` or show a helpful message. The button must use this
+   loopback URL regardless of whether a LAN address is available.
+   Disconnect/reconnect the LAN and change networks; the address should refresh,
+   and no LAN address should show connection guidance rather than a loopback or
+   cellular address. Install or enable a compatible WebView provider and reopen
+   the app; the embedded dashboard should return. Repeat on API 25 when available.
+7. On the fallback screen, press **Copy** beside the LAN address and paste it into
+   a text field; it must match the displayed LAN URL. With no LAN address, that
+   copy button must be hidden. Press **Copy debug info** and confirm the pasted
+   report contains the device/Android/app versions, selected WebView provider,
+   Chrome/System WebView versions and enabled state, server health, and the
+   original failure reason or exception stack with its causes. Rotate and copy
+   again; the original failure must remain in the report. On a working or blank
+   embedded dashboard, tap the dock's status dot to copy the same report. Use a
+   controlled main-frame HTTP/load error and renderer exit to check the fallback
+   and recorded status/error details; JavaScript warnings/errors should appear
+   in the recent events. Reports must omit private configuration, server-log
+   contents, URL credentials/query strings, and playback paths or keys.
 
 ## Playback, LAN, and background checks
 

@@ -1,15 +1,28 @@
 package org.dublift.app;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.graphics.Insets;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -17,20 +30,32 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.security.NetworkSecurityPolicy;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.animation.DecelerateInterpolator;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceResponse;
+import android.webkit.ConsoleMessage;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,12 +69,19 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService checks = Executors.newSingleThreadExecutor();
     private final ExecutorService updateChecks = Executors.newSingleThreadExecutor();
+    private final DashboardDiagnostics diagnostics = new DashboardDiagnostics();
     private ReleaseUpdateChecker.Release availableUpdate;
     private AlertDialog updateDialog;
     private String installedVersion;
     private boolean updateCheckComplete;
     private boolean resumed;
     private WebView webView;
+    private FrameLayout dashboardPage;
+    private TextView fallbackAddress;
+    private TextView fallbackStatus;
+    private Button copyLanButton;
+    private String lanDashboardUrl;
+    private Boolean lastServerHealthy;
     private LinearLayout dock;
     private LinearLayout serverToggle;
     private GradientDrawable statusShape;
@@ -63,10 +95,16 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (state != null) {
+            diagnostics.restore(state.getStringArrayList("dashboardDiagnosticEvents"),
+                    state.getString("dashboardFirstFailure"));
+        }
+        diagnostics.record("Activity created");
         getWindow().setStatusBarColor(SURFACE);
         getWindow().setNavigationBarColor(SURFACE);
 
         FrameLayout page = new FrameLayout(this);
+        dashboardPage = page;
         page.setBackgroundColor(SURFACE);
         if (Build.VERSION.SDK_INT >= 35) {
             page.setOnApplyWindowInsetsListener((view, windowInsets) -> {
@@ -76,38 +114,7 @@ public final class MainActivity extends Activity {
             });
         }
 
-        webView = new WebView(this);
-        webView.setBackgroundColor(SURFACE);
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setDomStorageEnabled(true);
-        webView.getSettings().setAllowFileAccess(false);
-        webView.getSettings().setAllowContentAccess(false);
-        webView.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return openExternal(request.getUrl());
-            }
-            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return openExternal(Uri.parse(url));
-            }
-        });
-        webView.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
-            if (scrollY <= dp(4)) {
-                scrollTravel = 0;
-                showDock();
-                return;
-            }
-            int delta = scrollY - oldY;
-            if (delta > 0) scrollTravel = Math.max(0, scrollTravel) + delta;
-            else if (delta < 0) scrollTravel = Math.min(0, scrollTravel) + delta;
-            if (scrollTravel >= dp(24)) {
-                scrollTravel = 0;
-                hideDock();
-            } else if (scrollTravel <= -dp(12)) {
-                scrollTravel = 0;
-                showDock();
-            }
-        });
-        page.addView(webView, new FrameLayout.LayoutParams(-1, -1));
+        createDashboard(page);
 
         createDock();
         FrameLayout.LayoutParams dockLayout = new FrameLayout.LayoutParams(
@@ -141,6 +148,324 @@ public final class MainActivity extends Activity {
         }
     }
 
+    @SuppressLint("WebViewApiAvailability") // API 25 uses guarded construction without an AndroidX dependency.
+    private void createDashboard(FrameLayout page) {
+        try {
+            boolean supported = getPackageManager().hasSystemFeature(PackageManager.FEATURE_WEBVIEW);
+            diagnostics.record("WebView feature declared: " + supported);
+            if (!supported) {
+                diagnostics.recordFailure("Device does not declare android.software.webview", null);
+            } else if (Build.VERSION.SDK_INT >= 26) {
+                PackageInfo provider = WebView.getCurrentWebViewPackage();
+                diagnostics.record("Selected WebView provider at startup: " + describePackage(provider));
+                if (provider == null) {
+                    diagnostics.recordFailure("Android reports no selected WebView provider", null);
+                } else {
+                    webView = createWebView();
+                }
+            } else {
+                diagnostics.record("Provider query unavailable on API 25; attempting WebView construction");
+                webView = createWebView();
+            }
+        } catch (RuntimeException | LinkageError unavailable) {
+            // API 25 has no provider-query API; construction also catches broken providers.
+            Log.w("DubLift", "Dashboard WebView unavailable", unavailable);
+            diagnostics.recordFailure("WebView creation failed", unavailable);
+        }
+        if (webView == null) {
+            createDashboardFallback(page, true);
+        } else {
+            diagnostics.record("WebView created and configured");
+            page.addView(webView, new FrameLayout.LayoutParams(-1, -1));
+        }
+    }
+
+    private WebView createWebView() {
+        WebView dashboard = new WebView(this);
+        dashboard.setBackgroundColor(SURFACE);
+        dashboard.getSettings().setJavaScriptEnabled(true);
+        dashboard.getSettings().setDomStorageEnabled(true);
+        dashboard.getSettings().setAllowFileAccess(false);
+        dashboard.getSettings().setAllowContentAccess(false);
+        dashboard.setWebViewClient(Build.VERSION.SDK_INT >= 26
+                ? new RendererAwareDashboardClient() : new DashboardClient());
+        dashboard.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage message) {
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR
+                        || message.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
+                    String event = "JavaScript " + message.messageLevel() + ": " + message.message()
+                            + "\nSource: " + message.sourceId() + "\nLine: " + message.lineNumber();
+                    if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                        diagnostics.recordFailure(event, null);
+                    } else {
+                        diagnostics.record(event);
+                    }
+                }
+                return false;
+            }
+        });
+        dashboard.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
+            if (scrollY <= dp(4)) {
+                scrollTravel = 0;
+                showDock();
+                return;
+            }
+            int delta = scrollY - oldY;
+            if (delta > 0) scrollTravel = Math.max(0, scrollTravel) + delta;
+            else if (delta < 0) scrollTravel = Math.min(0, scrollTravel) + delta;
+            if (scrollTravel >= dp(24)) {
+                scrollTravel = 0;
+                hideDock();
+            } else if (scrollTravel <= -dp(12)) {
+                scrollTravel = 0;
+                showDock();
+            }
+        });
+        return dashboard;
+    }
+
+    private class DashboardClient extends WebViewClient {
+        @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            return openExternal(request.getUrl());
+        }
+        @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            return openExternal(Uri.parse(url));
+        }
+        @Override public void onPageStarted(WebView view, String url, Bitmap icon) {
+            if (!"about:blank".equals(url)) diagnostics.record("Page started: " + url);
+        }
+        @Override public void onPageFinished(WebView view, String url) {
+            if (view == webView && !"about:blank".equals(url)) {
+                diagnostics.record("Page finished: progress=" + view.getProgress()
+                        + "; contentHeight=" + view.getContentHeight() + "; URL=" + url);
+            }
+        }
+        @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+            String message = "WebView load error: code=" + error.getErrorCode() + "; "
+                    + error.getDescription() + "; mainFrame=" + request.isForMainFrame()
+                    + "; URL=" + request.getUrl();
+            diagnostics.recordFailure(message, null);
+            if (request.isForMainFrame()) showLoadFailure(view);
+        }
+        @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+            String message = "WebView HTTP error: status=" + response.getStatusCode() + "; "
+                    + response.getReasonPhrase() + "; mainFrame=" + request.isForMainFrame()
+                    + "; URL=" + request.getUrl();
+            diagnostics.recordFailure(message, null);
+            if (request.isForMainFrame()) showLoadFailure(view);
+        }
+    }
+
+    @SuppressLint("UseRequiresApi") // Private class is created only by the SDK-guarded factory above.
+    @TargetApi(26)
+    private final class RendererAwareDashboardClient extends DashboardClient {
+        @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+            diagnostics.recordFailure("WebView renderer exited: crashed=" + detail.didCrash()
+                    + "; priority=" + detail.rendererPriorityAtExit(), null);
+            showLoadFailure(view);
+            return true;
+        }
+    }
+
+    private void showLoadFailure(WebView view) {
+        if (view != webView || isFinishing() || isDestroyed()) return;
+        dashboardPage.removeView(view);
+        webView = null;
+        dashboardLoaded = false;
+        view.destroy();
+        createDashboardFallback(dashboardPage, false);
+        showDock();
+    }
+
+    private void createDashboardFallback(FrameLayout page, boolean providerUnavailable) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(24), dp(36), dp(24), dp(100));
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+
+        TextView title = fallbackText(content, getString(providerUnavailable
+                ? R.string.dashboard_no_webview_title : R.string.dashboard_load_failed_title), 24);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        fallbackText(content, getString(providerUnavailable
+                ? R.string.dashboard_no_webview_explanation : R.string.dashboard_load_failed_explanation), 17);
+        fallbackText(content, getString(R.string.dashboard_no_webview_alternatives), 17);
+
+        fallbackStatus = fallbackText(content, serverStatus, 17);
+        Button browser = new Button(this);
+        browser.setText(R.string.dashboard_open_browser);
+        browser.setOnClickListener(view -> openDashboardInBrowser());
+        LinearLayout.LayoutParams browserLayout = new LinearLayout.LayoutParams(-1, -2);
+        browserLayout.bottomMargin = dp(20);
+        content.addView(browser, browserLayout);
+
+        LinearLayout lanRow = new LinearLayout(this);
+        lanRow.setOrientation(LinearLayout.HORIZONTAL);
+        lanRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams lanLayout = new LinearLayout.LayoutParams(-1, -2);
+        lanLayout.bottomMargin = dp(20);
+        content.addView(lanRow, lanLayout);
+        fallbackAddress = fallbackText(lanRow,
+                getString(R.string.dashboard_lan_address_loading), 18);
+        fallbackAddress.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+        fallbackAddress.setTextIsSelectable(true);
+        copyLanButton = new Button(this);
+        copyLanButton.setText(R.string.dashboard_copy_lan);
+        copyLanButton.setContentDescription(getString(R.string.dashboard_copy_lan_description));
+        copyLanButton.setVisibility(View.GONE);
+        copyLanButton.setOnClickListener(view -> {
+            if (lanDashboardUrl != null) copyToClipboard(R.string.dashboard_lan_clip_label,
+                    lanDashboardUrl, R.string.dashboard_lan_copied);
+        });
+        LinearLayout.LayoutParams copyLayout = new LinearLayout.LayoutParams(-2, -2);
+        copyLayout.leftMargin = dp(12);
+        lanRow.addView(copyLanButton, copyLayout);
+
+        Button debug = new Button(this);
+        debug.setText(R.string.dashboard_copy_debug);
+        debug.setOnClickListener(view -> copyDebugInfo());
+        content.addView(debug, new LinearLayout.LayoutParams(-1, -2));
+        page.addView(scroll, 0, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private TextView fallbackText(LinearLayout content, String text, int size) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextColor(MUTED);
+        view.setTextSize(size);
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
+        layout.bottomMargin = dp(20);
+        content.addView(view, layout);
+        return view;
+    }
+
+    @SuppressWarnings("deprecation") // Poll all LAN networks, including ones without Internet, on API 25+.
+    private String findLanDashboardUrl() {
+        ConnectivityManager connectivity = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (connectivity == null) return null;
+        for (Network network : connectivity.getAllNetworks()) {
+            NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
+            if (capabilities == null || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                    || (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) continue;
+            LinkProperties properties = connectivity.getLinkProperties(network);
+            if (properties == null) continue;
+            for (LinkAddress link : properties.getLinkAddresses()) {
+                InetAddress address = link.getAddress();
+                if (address instanceof Inet4Address && !address.isLoopbackAddress()
+                        && !address.isAnyLocalAddress()) {
+                    return "http://" + address.getHostAddress() + ":7000/";
+                }
+            }
+        }
+        return null;
+    }
+
+    private void updateFallbackAddress(String url) {
+        if (fallbackAddress == null) return;
+        if (url == null) {
+            lanDashboardUrl = null;
+            copyLanButton.setVisibility(View.GONE);
+            fallbackAddress.setText(R.string.dashboard_no_lan_address);
+            return;
+        }
+        if (url.equals(lanDashboardUrl)) return;
+        lanDashboardUrl = url;
+        fallbackAddress.setText(url);
+        copyLanButton.setVisibility(View.VISIBLE);
+    }
+
+    private void openDashboardInBrowser() {
+        diagnostics.record("External browser requested: " + DASHBOARD);
+        Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(DASHBOARD));
+        browser.setSelector(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER));
+        try {
+            startActivity(browser);
+        } catch (ActivityNotFoundException noBrowser) {
+            diagnostics.record("No external browser available");
+            Toast.makeText(this, R.string.dashboard_no_browser, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void copyToClipboard(int label, String text, int confirmation) {
+        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+        if (clipboard == null) {
+            Toast.makeText(this, R.string.dashboard_copy_failed, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(label), text));
+        Toast.makeText(this, confirmation, Toast.LENGTH_SHORT).show();
+    }
+
+    private void copyDebugInfo() {
+        copyToClipboard(R.string.dashboard_debug_clip_label, diagnostics.report(debugEnvironment()),
+                R.string.dashboard_debug_copied);
+    }
+
+    @SuppressLint("WebViewApiAvailability")
+    private String debugEnvironment() {
+        StringBuilder info = new StringBuilder("Device: ").append(Build.MANUFACTURER).append(' ')
+                .append(Build.MODEL).append("\nBrand/device: ").append(Build.BRAND).append('/')
+                .append(Build.DEVICE).append("\nAndroid: ").append(Build.VERSION.RELEASE)
+                .append(" (API ").append(Build.VERSION.SDK_INT).append(")\nSecurity patch: ")
+                .append(Build.VERSION.SECURITY_PATCH).append("\nBuild: ").append(Build.FINGERPRINT)
+                .append("\nABIs: ").append(Arrays.toString(Build.SUPPORTED_ABIS))
+                .append("\nApp: ").append(installedPackage(getPackageName()))
+                .append("\nWebView feature declared: ")
+                .append(getPackageManager().hasSystemFeature(PackageManager.FEATURE_WEBVIEW));
+        if (Build.VERSION.SDK_INT >= 26) {
+            try {
+                info.append("\nSelected WebView provider now: ").append(describePackage(WebView.getCurrentWebViewPackage()));
+            } catch (RuntimeException | LinkageError failure) {
+                info.append("\nSelected WebView provider now: query failed (see events)");
+                diagnostics.recordFailure("WebView provider query failed while collecting debug info", failure);
+            }
+        } else {
+            info.append("\nSelected WebView provider: query unavailable on API 25");
+        }
+        info.append("\nGoogle System WebView: ").append(installedPackage("com.google.android.webview"))
+                .append("\nAOSP System WebView: ").append(installedPackage("com.android.webview"))
+                .append("\nChrome: ").append(installedPackage("com.android.chrome"))
+                .append("\nApp target SDK: ").append(getApplicationInfo().targetSdkVersion)
+                .append("\nDebug build: ").append((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0)
+                .append("\nLocal dashboard: ").append(DASHBOARD)
+                .append("\nCleartext localhost permitted: ")
+                .append(NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted("127.0.0.1"))
+                .append("\nServer enabled: ").append(DubLiftService.isEnabled(this))
+                .append("\nLast health check: ").append(lastServerHealthy == null ? "not completed" : lastServerHealthy)
+                .append("\nServer status: ").append(serverStatus)
+                .append("\nLast server startup error: ")
+                .append(getSharedPreferences("runtime", MODE_PRIVATE).getString("lastError", "none recorded"))
+                .append("\nLAN dashboard: ").append(lanDashboardUrl == null ? "not available/checked" : lanDashboardUrl)
+                .append("\nEmbedded WebView: ").append(webView == null ? "unavailable" : "created");
+        if (webView != null) {
+            info.append("\nCurrent page: ").append(webView.getUrl()).append("\nPage progress: ")
+                    .append(webView.getProgress()).append("\nPage content height: ").append(webView.getContentHeight());
+        }
+        return info.toString();
+    }
+
+    private String installedPackage(String name) {
+        try {
+            return describePackage(getPackageManager().getPackageInfo(name, 0));
+        } catch (PackageManager.NameNotFoundException missing) {
+            return "not installed or not visible";
+        } catch (RuntimeException failure) {
+            return "query failed: " + failure;
+        }
+    }
+
+    private String describePackage(PackageInfo info) {
+        if (info == null) return "none";
+        long version = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+        String description = info.packageName + " " + info.versionName + " (" + version + ")";
+        if (info.applicationInfo != null) description += "; enabled=" + info.applicationInfo.enabled;
+        try {
+            description += "; enabledSetting=" + getPackageManager().getApplicationEnabledSetting(info.packageName);
+        } catch (RuntimeException ignored) { }
+        return description;
+    }
+
     private void createDock() {
         dock = new LinearLayout(this);
         dock.setGravity(Gravity.CENTER_VERTICAL);
@@ -155,7 +480,11 @@ public final class MainActivity extends Activity {
 
         FrameLayout statusArea = new FrameLayout(this);
         statusArea.setContentDescription(serverStatus);
-        statusArea.setOnClickListener(v -> Toast.makeText(this, serverStatus, Toast.LENGTH_SHORT).show());
+        statusArea.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle(R.string.dashboard_debug_dialog_title)
+                .setMessage(getString(R.string.dashboard_debug_dialog_message, serverStatus))
+                .setPositiveButton(R.string.dashboard_copy_debug, (dialog, which) -> copyDebugInfo())
+                .setNegativeButton(android.R.string.cancel, null).show());
         statusControl = statusArea;
         View dot = new View(this);
         statusShape = new GradientDrawable();
@@ -173,8 +502,7 @@ public final class MainActivity extends Activity {
 
         View restart = dockButton(R.drawable.ic_restart, "Restart", MUTED);
         restart.setOnClickListener(v -> {
-            dashboardLoaded = false;
-            webView.loadUrl("about:blank");
+            clearDashboard();
             startServer(DubLiftService.ACTION_RESTART);
             showDock();
         });
@@ -188,8 +516,7 @@ public final class MainActivity extends Activity {
         serverToggle.setOnClickListener(v -> {
             if (serverEnabled) {
                 startService(new Intent(this, DubLiftService.class).setAction(DubLiftService.ACTION_STOP));
-                dashboardLoaded = false;
-                webView.loadUrl("about:blank");
+                clearDashboard();
                 setServerStatus("Server stopped", STOPPED);
                 setServerToggle(false);
             } else {
@@ -259,6 +586,8 @@ public final class MainActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
+        state.putStringArrayList("dashboardDiagnosticEvents", diagnostics.events());
+        state.putString("dashboardFirstFailure", diagnostics.firstFailure());
         state.putBoolean("updateCheckComplete", updateCheckComplete);
         if (availableUpdate != null) {
             state.putString("updateTag", availableUpdate.tag);
@@ -324,9 +653,14 @@ public final class MainActivity extends Activity {
     }
 
     private void setServerStatus(String message, int color) {
+        if (!message.equals(serverStatus)) diagnostics.record("Server status: " + message);
         serverStatus = message;
         statusShape.setColor(color);
         statusControl.setContentDescription(message);
+        if (fallbackStatus != null) {
+            fallbackStatus.setText(message);
+            fallbackStatus.setTextColor(color);
+        }
     }
 
     private int dp(int value) {
@@ -334,6 +668,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startServer(String action) {
+        diagnostics.record("Server action: " + action);
         AndroidCompat.startServer(this, new Intent(this, DubLiftService.class).setAction(action));
         setServerStatus("Server starting", Color.rgb(234, 181, 91));
         setServerToggle(true);
@@ -342,19 +677,24 @@ public final class MainActivity extends Activity {
     private void checkServer() {
         checks.execute(() -> {
             boolean ready = DubLiftService.healthy();
+            String lanUrl = fallbackAddress != null ? findLanDashboardUrl() : null;
             handler.post(() -> {
                 if (!active) return;
+                if (lastServerHealthy == null || lastServerHealthy != ready) {
+                    diagnostics.record("Local server health check: " + (ready ? "healthy" : "not healthy"));
+                }
+                lastServerHealthy = ready;
+                updateFallbackAddress(lanUrl);
                 if (!DubLiftService.isEnabled(this)) {
                     setServerStatus("Server stopped", STOPPED);
                     setServerToggle(false);
                     if (dashboardLoaded) {
-                        dashboardLoaded = false;
-                        webView.loadUrl("about:blank");
+                        clearDashboard();
                     }
                 } else if (ready) {
-                    setServerStatus("Server running at 127.0.0.1:7000", ACCENT);
+                    setServerStatus(webView != null ? "Server running at 127.0.0.1:7000" : "Server running", ACCENT);
                     setServerToggle(true);
-                    if (!dashboardLoaded) {
+                    if (webView != null && !dashboardLoaded) {
                         dashboardLoaded = true;
                         webView.loadUrl(DASHBOARD);
                     }
@@ -365,6 +705,11 @@ public final class MainActivity extends Activity {
                 handler.postDelayed(this::checkServer, 2000);
             });
         });
+    }
+
+    private void clearDashboard() {
+        dashboardLoaded = false;
+        if (webView != null) webView.loadUrl("about:blank");
     }
 
     private boolean openExternal(Uri uri) {
@@ -410,7 +755,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack();
+        if (webView != null && webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
     }
 
@@ -420,7 +765,7 @@ public final class MainActivity extends Activity {
         updateChecks.shutdownNow();
         if (updateDialog != null) updateDialog.dismiss();
         handler.removeCallbacksAndMessages(null);
-        webView.destroy();
+        if (webView != null) webView.destroy();
         super.onDestroy();
     }
 }

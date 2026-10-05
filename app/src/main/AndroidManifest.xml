@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <queries>
+        <package android:name="com.android.chrome" />
+        <package android:name="com.google.android.webview" />
+        <package android:name="com.android.webview" />
+    </queries>
+
     <application
         android:label="DubLift"
         android:icon="@mipmap/ic_launcher"

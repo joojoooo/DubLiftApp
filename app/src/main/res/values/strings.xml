@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dashboard_no_webview_title">No WebView available</string>
+    <string name="dashboard_no_webview_explanation">This device has no usable Android WebView, the component DubLift needs to display its dashboard inside the app. That is why the dashboard cannot be shown here.</string>
+    <string name="dashboard_no_webview_alternatives">Install or enable Chrome or Android System WebView, then reopen DubLift. Use the button below to open the dashboard in a browser on this device. To use another device on the same LAN (Wi-Fi or Ethernet), open the LAN address shown below in its browser. Keep DubLift running on this device.</string>
+    <string name="dashboard_open_browser">Open dashboard in external browser</string>
+    <string name="dashboard_load_failed_title">Dashboard could not be displayed</string>
+    <string name="dashboard_load_failed_explanation">WebView could not load the dashboard or its renderer stopped. Copy the debug info below and send it to the developer to help find the cause.</string>
+    <string name="dashboard_lan_address_loading">Looking for this device\'s LAN dashboard address…</string>
+    <string name="dashboard_no_lan_address">No LAN IP address is available. You can still use the button above on this device. Connect to Wi-Fi or Ethernet to display an address for another device.</string>
+    <string name="dashboard_no_browser">No browser installed. Install Chrome or open the LAN address on another device on the same LAN.</string>
+    <string name="dashboard_copy_lan">Copy</string>
+    <string name="dashboard_copy_lan_description">Copy LAN dashboard address</string>
+    <string name="dashboard_lan_clip_label">DubLift LAN dashboard address</string>
+    <string name="dashboard_lan_copied">LAN dashboard address copied</string>
+    <string name="dashboard_copy_debug">Copy debug info</string>
+    <string name="dashboard_debug_clip_label">DubLift dashboard debug info</string>
+    <string name="dashboard_debug_copied">Debug info copied. Send it to the developer.</string>
+    <string name="dashboard_copy_failed">Clipboard unavailable. Could not copy.</string>
+    <string name="dashboard_debug_dialog_title">Dashboard debug info</string>
+    <string name="dashboard_debug_dialog_message">%1$s\n\nIf the dashboard is blank or not working, copy the debug info and send it to the developer.</string>
+</resources>

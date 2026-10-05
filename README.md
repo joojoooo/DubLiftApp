@@ -63,8 +63,16 @@ the loopback URL works only on the phone running DubLift.
   app or notification disables boot restart until you start it again.
 - Keeping the CPU and Wi-Fi awake consumes battery. Uninstalling removes the
   app's private settings and data.
-- If the dashboard fails to load on Android 7.1, check for Chrome or Android
-  System WebView updates.
+- Without a usable WebView, the app shows an explanation and a button to open
+  the dashboard in a browser on the same device using `http://127.0.0.1:7000/`.
+  Install or enable Chrome or Android System WebView and reopen DubLift, or use
+  the displayed LAN address on another device on the same LAN. Connect to Wi-Fi
+  or Ethernet if no LAN address is shown. For dashboard issues on Android 7.1,
+  also check for Chrome or Android System WebView updates.
+- **Copy debug info** on the fallback screen copies device/provider versions,
+  WebView failure details, and recent dashboard events to send to the developer.
+  If the dashboard stays blank, tap the dock's status dot to access the same
+  button. **Copy** beside the LAN address copies it for use on another device.
 
 ## 🛠️ Development
 
