@@ -31,13 +31,19 @@ Core server checks belong to [DubLift's validation guide](../DubLift/docs/valida
 For debug APKs:
 
 ```sh
+ndk="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.2.12479018}"
 for abi in arm64-v8a armeabi-v7a; do
   apk="app/build/outputs/apk/debug/app-$abi-debug.apk"
   test -s "$apk" || exit 1
   unzip -t "$apk" >/dev/null || exit 1
   "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$apk" || exit 1
   "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose "$apk" || exit 1
+  "$ANDROID_HOME/build-tools/35.0.1/zipalign" -c -P 16 4 "$apk" || exit 1
   unzip -l "$apk" "lib/$abi/*" || exit 1
+  unzip -oq "$apk" "lib/$abi/*" -d build/apk-inspection || exit 1
+  for binary in build/apk-inspection/lib/"$abi"/*.so; do
+    "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -lW "$binary" || exit 1
+  done
 done
 ```
 
@@ -46,6 +52,15 @@ the matching `native-code` ABI in each APK. Its `lib/<abi>/` directory must
 contain `libdublift.so`, `libffmpeg.so`, and `libffprobe.so`. There is no
 universal or x86 APK. Inspect final signed release APKs in the same way;
 unsigned Gradle release outputs cannot pass signature verification.
+
+For every packaged executable, confirm each `LOAD` segment has alignment
+`0x4000` (16 KB) or greater and its file offset and virtual address are
+congruent modulo `0x4000`. For each `GNU_RELRO` segment,
+`(VirtAddr + MemSiz) % 0x4000` must be zero. Native preparation enforces these
+checks before packaging. ZIP alignment alone cannot validate ELF segments;
+the APK uses compressed native entries that Android extracts before execution.
+See [Android's page-size guide](https://developer.android.com/guide/practices/page-sizes)
+for the requirements.
 
 ## Device smoke test
 
@@ -56,6 +71,7 @@ execute the bundled ARM programs. With Android platform-tools installed:
 adb devices
 adb shell getprop ro.build.version.sdk
 adb shell getprop ro.product.cpu.abilist
+adb shell getconf PAGE_SIZE
 ```
 
 Install the appropriate debug APK, for example on ARM64:
@@ -115,6 +131,9 @@ Use a test device/profile or account for data loss before uninstalling.
 - Repeat installation and playback on ARM64 and ARMv7 hardware, including
   Android 7.1 where available. A successful cross-build does not establish
   runtime compatibility on those devices.
+- Repeat server startup, playback, and error-video generation on a 16 KB
+  ARM64 device (`getconf PAGE_SIZE` returns `16384`) with page-size compatibility
+  mode disabled. Also check a 4 KB device (`4096`) for backward compatibility.
 
 Record which device, Android version, ABI, and app/core revisions were
 checked. Report unavailable hardware, skipped checks, and provider failures

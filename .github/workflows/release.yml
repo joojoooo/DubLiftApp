@@ -89,7 +89,7 @@ jobs:
           for target in arm64-v8a:arm64 armeabi-v7a:armv7; do
             abi=${target%:*}
             architecture=${target#*:}
-            "$ANDROID_HOME/build-tools/35.0.1/zipalign" -p -f 4 \
+            "$ANDROID_HOME/build-tools/35.0.1/zipalign" -P 16 -f 4 \
               "app/build/outputs/apk/release/app-$abi-release-unsigned.apk" \
               "$RUNNER_TEMP/dublift-$architecture-aligned.apk"
             "$ANDROID_HOME/build-tools/35.0.1/apksigner" sign \
@@ -99,6 +99,7 @@ jobs:
               --key-pass env:ANDROID_KEY_PASSWORD \
               --out "release/DubLift-$architecture.apk" "$RUNNER_TEMP/dublift-$architecture-aligned.apk"
             "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify "release/DubLift-$architecture.apk"
+            "$ANDROID_HOME/build-tools/35.0.1/zipalign" -c -P 16 4 "release/DubLift-$architecture.apk"
           done
 
       - name: Publish GitHub Release

@@ -75,6 +75,12 @@ The script compiles DubLift with `CGO_ENABLED=1`, `GOOS=android`, and the NDK
 C compiler so DNS uses Android's resolver. ARM64 uses `GOARCH=arm64`; ARMv7
 uses `GOARCH=arm`, `GOARM=7`, and NEON-enabled FFmpeg.
 
+All three executables use 16 KB ELF alignment, including the RELRO end, via
+the NDK r27 linker flags `-z max-page-size=16384` and
+`-z common-page-size=16384`. Native preparation checks the resulting segments,
+including cached FFmpeg outputs. The same binaries support 4 KB devices;
+the minimum Android version remains API 25.
+
 It downloads checksum-verified sources and builds FFmpeg/ffprobe with static
 FreeType, HarfBuzz, and OpenH264 dependencies. `lavfi` and `drawtext` render
 playback failure screens using Android system fonts; OpenH264 encodes those

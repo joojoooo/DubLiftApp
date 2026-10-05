@@ -16,6 +16,9 @@ toolchain="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64"
 
 version=7.1.2
 min_api=25
+# Keep LOAD segments and the end of RELRO compatible with both 4 KB and 16 KB
+# kernels. NDK r27 needs both flags; max-page-size alone leaves 4 KB RELRO.
+native_ldflags='-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
 archive="$root/build/native/ffmpeg-$version.tar.xz"
 expected=089bc60fb59d6aecc5d994ff530fd0dcb3ee39aa55867849a2bbc4e555f9c304
 source="$root/build/native/ffmpeg-$version"
@@ -23,6 +26,36 @@ freetype_version=2.13.3
 harfbuzz_version=10.4.0
 openh264_version=2.5.0
 recipe_id=$(sha256sum "$0" | cut -d ' ' -f 1)
+
+check_native_alignment() {
+  local binary type offset vaddr paddr filesz memsz flags alignment loads
+  for binary in "$@"; do
+    loads=0
+    while read -r type offset vaddr paddr filesz memsz flags; do
+      case "$type" in
+        LOAD)
+          alignment=${flags##* }
+          if (( alignment < 16384 || (vaddr - offset) % 16384 != 0 )); then
+            echo "Native LOAD segment is not 16 KB aligned: $binary" >&2
+            exit 1
+          fi
+          loads=$((loads + 1))
+          ;;
+        GNU_RELRO)
+          if (( (vaddr + memsz) % 16384 != 0 )); then
+            echo "Native RELRO end is not 16 KB aligned: $binary" >&2
+            exit 1
+          fi
+          ;;
+      esac
+    done < <("$toolchain/bin/llvm-readelf" -lW "$binary")
+    if (( loads == 0 )); then
+      echo "No native LOAD segments found: $binary" >&2
+      exit 1
+    fi
+    echo "Verified 16 KB native alignment: $binary"
+  done
+}
 
 fetch_source() {
   local archive="$1" expected="$2" url="$3" source="$4"
@@ -115,7 +148,8 @@ build_native() {
 
   echo "Building DubLift for Android $abi..."
   (cd "$source_root" && CGO_ENABLED=1 GOOS=android GOARCH="$goarch" GOARM=7 CC="$android_cc" \
-    go build -trimpath -ldflags='-s -w' -o "$output/libdublift.so" ./cmd/dublift)
+    go build -trimpath -ldflags="-s -w -linkmode=external -extldflags '$native_ldflags'" \
+      -o "$output/libdublift.so" ./cmd/dublift)
 
   if [[ -s "$output/libffmpeg.so" && -s "$output/libffprobe.so" &&
         -f "$api_stamp" && -f "$build_stamp" && ${REBUILD_FFMPEG:-0} != 1 ]] &&
@@ -146,7 +180,7 @@ build_native() {
       --sysroot="$toolchain/sysroot" \
       --pkg-config-flags=--static \
       --extra-cflags="-I$prefix/include" \
-      --extra-ldflags="-L$prefix/lib -Wl,-z,max-page-size=16384" \
+      --extra-ldflags="-L$prefix/lib $native_ldflags" \
       --extra-libs="$toolchain/sysroot/usr/lib/$triplet/libc++_static.a $toolchain/sysroot/usr/lib/$triplet/libc++abi.a -ldl -lm" \
       --enable-libfreetype --enable-libharfbuzz --enable-libopenh264 --enable-zlib \
       --disable-autodetect \
@@ -172,5 +206,6 @@ build_native() {
 
 for abi in arm64-v8a armeabi-v7a; do
   build_native "$abi"
+  check_native_alignment "$root/app/build/generated/jniLibs/$abi/"*.so
 done
 echo 'Android native executables are ready.'
