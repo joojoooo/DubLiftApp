@@ -13,15 +13,11 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 
-import org.json.JSONObject;
-
 import java.io.Closeable;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -31,6 +27,11 @@ public final class DubLiftService extends Service {
     static final String ACTION_STOP = "org.dublift.app.STOP";
     private static final String CHANNEL = "dublift_server";
     private static final int NOTIFICATION_ID = 7000;
+    private static final int DEFAULT_CACHE_MB = 128;
+    private static final int PORT = 7000;
+    private static final String LISTEN_ADDRESS = "0.0.0.0:" + PORT;
+    private static final String DASHBOARD_URL = "http://127.0.0.1:" + PORT;
+    private static final String HEALTH_CHECK_URL = DASHBOARD_URL + "/healthz";
 
     private final AtomicBoolean workerStarted = new AtomicBoolean(false);
     private volatile boolean enabled;
@@ -128,7 +129,7 @@ public final class DubLiftService extends Service {
             Process process = null;
             try {
                 if (healthy()) {
-                    showForeground("Available at http://127.0.0.1:7000");
+                    showForeground("Available at " + DASHBOARD_URL);
                     while (enabled && healthy()) Thread.sleep(5000);
                     continue;
                 }
@@ -144,11 +145,13 @@ public final class DubLiftService extends Service {
                     throw new IllegalStateException("Could not create private data directory");
                 }
                 File config = new File(dataDir, "config.json");
-                prepareConfig(config, ffmpeg, ffprobe);
                 // Shell redirection works on API 25; exec preserves process control for Stop/Restart.
                 ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c",
                         "exec \"$@\" > server.log 2>&1", "dublift", go.getAbsolutePath(),
-                        "-config", config.getAbsolutePath(), "-listen", "0.0.0.0:7000");
+                        "-config", config.getAbsolutePath(), "-app-listen", LISTEN_ADDRESS,
+                        "-app-ffmpeg", ffmpeg.getAbsolutePath(),
+                        "-app-ffprobe", ffprobe.getAbsolutePath(),
+                        "-default-cache-mb", String.valueOf(DEFAULT_CACHE_MB));
                 builder.directory(dataDir);
                 builder.environment().put("LD_LIBRARY_PATH", binaryDir.getAbsolutePath());
                 builder.environment().put("TMPDIR", getCacheDir().getAbsolutePath());
@@ -160,7 +163,7 @@ public final class DubLiftService extends Service {
                 while (enabled && AndroidCompat.isAlive(process)) {
                     if (healthy()) {
                         lastHealthy = System.currentTimeMillis();
-                        showForeground("Available at http://127.0.0.1:7000");
+                        showForeground("Available at " + DASHBOARD_URL);
                     } else if (System.currentTimeMillis() - lastHealthy > 30000) {
                         process.destroy();
                         break;
@@ -193,26 +196,10 @@ public final class DubLiftService extends Service {
         try { stream.close(); } catch (IOException ignored) {}
     }
 
-    private void prepareConfig(File config, File ffmpeg, File ffprobe) throws Exception {
-        JSONObject settings = config.exists()
-                ? new JSONObject(AndroidCompat.readUtf8(config))
-                : new JSONObject();
-        settings.put("ffmpeg", ffmpeg.getAbsolutePath());
-        settings.put("ffprobe", ffprobe.getAbsolutePath());
-        settings.put("listen", "0.0.0.0:7000");
-        if (!config.exists()) settings.put("cacheMB", 128);
-        File temporary = new File(config.getParentFile(), "config.json.tmp");
-        try (FileOutputStream stream = new FileOutputStream(temporary)) {
-            stream.write(settings.toString(2).getBytes(StandardCharsets.UTF_8));
-            stream.getFD().sync();
-        }
-        if (!temporary.renameTo(config)) throw new IllegalStateException("Could not save config");
-    }
-
     static boolean healthy() {
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL("http://127.0.0.1:7000/healthz").openConnection();
+            connection = (HttpURLConnection) new URL(HEALTH_CHECK_URL).openConnection();
             connection.setConnectTimeout(1000);
             connection.setReadTimeout(1000);
             return connection.getResponseCode() == 200;
