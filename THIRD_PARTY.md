@@ -6,7 +6,7 @@ The FFmpeg executables statically link these libraries to render and encode the 
 
 | Library | Source archive SHA-256 | License |
 | --- | --- | --- |
-| [FreeType 2.13.3](https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz) | `0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289` | [FreeType License](licenses/FreeType-FTL.TXT) |
+| [FreeType 2.13.3](https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz) ([fallback mirror](https://downloads.sourceforge.net/project/freetype/freetype2/2.13.3/freetype-2.13.3.tar.xz)) | `0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289` | [FreeType License](licenses/FreeType-FTL.TXT) |
 | [HarfBuzz 10.4.0](https://github.com/harfbuzz/harfbuzz/releases/download/10.4.0/harfbuzz-10.4.0.tar.xz) | `480b6d25014169300669aa1fc39fb356c142d5028324ea52b3a27648b9beaad8` | [Old MIT License](licenses/HarfBuzz-COPYING) |
 | [OpenH264 2.5.0](https://github.com/cisco/openh264/archive/refs/tags/v2.5.0.tar.gz) | `94c8ca364db990047ec4ec3481b04ce0d791e62561ef5601443011bdc00825e3` | [BSD License](licenses/OpenH264-LICENSE) |
 

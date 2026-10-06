@@ -59,9 +59,40 @@ check_native_alignment() {
 
 fetch_source() {
   local archive="$1" expected="$2" url="$3" source="$4"
-  if [[ ! -f "$archive" ]]; then
-    curl -fL --retry 3 "$url" -o "$archive"
+  shift 4
+  local urls=("$url" "$@")
+
+  if [[ -f "$archive" ]] && ! echo "$expected  $archive" | sha256sum -c --status -; then
+    echo "Checksum mismatch for existing $archive; re-downloading..." >&2
+    rm -f "$archive"
   fi
+
+  if [[ ! -f "$archive" ]]; then
+    local downloaded=0
+    for u in "${urls[@]}"; do
+      echo "Downloading $(basename "$archive") from $u..."
+      rm -f "$archive.tmp"
+      if curl -fL --retry 3 --connect-timeout 15 "$u" -o "$archive.tmp"; then
+        if echo "$expected  $archive.tmp" | sha256sum -c --status -; then
+          mv "$archive.tmp" "$archive"
+          downloaded=1
+          break
+        else
+          echo "Checksum mismatch for $(basename "$archive") downloaded from $u" >&2
+          rm -f "$archive.tmp"
+        fi
+      else
+        echo "Failed to download from $u" >&2
+        rm -f "$archive.tmp"
+      fi
+    done
+
+    if (( downloaded == 0 )); then
+      echo "Failed to download $archive from any available source." >&2
+      return 1
+    fi
+  fi
+
   echo "$expected  $archive" | sha256sum -c -
   if [[ ! -d "$source" ]]; then
     tar -xf "$archive" -C "$root/build/native"
@@ -75,7 +106,8 @@ build_error_screen_deps() {
   local openh264="$root/build/native/openh264-$openh264_version"
   fetch_source "$root/build/native/freetype-$freetype_version.tar.xz" \
     0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289 \
-    "https://download.savannah.gnu.org/releases/freetype/freetype-$freetype_version.tar.xz" "$freetype"
+    "https://download.savannah.gnu.org/releases/freetype/freetype-$freetype_version.tar.xz" "$freetype" \
+    "https://downloads.sourceforge.net/project/freetype/freetype2/$freetype_version/freetype-$freetype_version.tar.xz"
   fetch_source "$root/build/native/harfbuzz-$harfbuzz_version.tar.xz" \
     480b6d25014169300669aa1fc39fb356c142d5028324ea52b3a27648b9beaad8 \
     "https://github.com/harfbuzz/harfbuzz/releases/download/$harfbuzz_version/harfbuzz-$harfbuzz_version.tar.xz" "$harfbuzz"
