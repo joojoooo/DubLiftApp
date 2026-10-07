@@ -42,7 +42,7 @@ between 1 and 2100000000. Choose a code greater than the previous release
 so Android accepts an update. `v0.0.0` is rejected.
 
 Gradle reads `releaseVersionName` and `releaseVersionCode` properties; without
-them, it defaults to `1.0.0` and `1`. Check release packaging locally with
+them, it defaults to `0.0.0` and `1`. Check release packaging locally with
 the [build prerequisites](building.md):
 
 ```sh
@@ -50,10 +50,11 @@ the [build prerequisites](building.md):
   -PreleaseVersionName=1.0.0 -PreleaseVersionCode=1000000
 ```
 
-This produces `app-arm64-v8a-release-unsigned.apk` and
-`app-armeabi-v7a-release-unsigned.apk` under
-`app/build/outputs/apk/release/`. Gradle does not configure release signing;
-CI aligns and signs these APKs separately.
+This produces `DubLift-1.0.0-arm64-v8a-release.apk` and
+`DubLift-1.0.0-armeabi-v7a-release.apk` under
+`app/build/outputs/apk/release/` (with the configured version name in place of
+`1.0.0`). These Gradle outputs are unsigned; CI aligns and signs them using
+the same filenames before publishing.
 
 ## Publish
 
@@ -74,8 +75,8 @@ CI aligns and signs these APKs separately.
 CI builds both ABIs from source, aligns the APKs with `zipalign`, signs them
 with `apksigner`, and verifies both signatures before publishing:
 
-- `DubLift-arm64.apk`
-- `DubLift-armv7.apk`
+- `DubLift-<version>-arm64-v8a-release.apk`
+- `DubLift-<version>-armeabi-v7a-release.apk`
 
 The workflow uses its GitHub token with `contents: write` permission.
 Release notes combine the template with a **Changelog** section containing
@@ -97,13 +98,16 @@ downloading them, calculate local hashes and compare with the release asset
 digests:
 
 ```sh
-sha256sum DubLift-arm64.apk DubLift-armv7.apk
+version=1.0.0 # replace with the downloaded release version
+sha256sum "DubLift-$version-arm64-v8a-release.apk" \
+  "DubLift-$version-armeabi-v7a-release.apk"
 ```
 
 With `ANDROID_HOME` set to the SDK directory, verify downloaded signatures:
 
 ```sh
-for apk in DubLift-arm64.apk DubLift-armv7.apk; do
+for apk in "DubLift-$version-arm64-v8a-release.apk" \
+  "DubLift-$version-armeabi-v7a-release.apk"; do
   "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose --print-certs "$apk"
 done
 ```

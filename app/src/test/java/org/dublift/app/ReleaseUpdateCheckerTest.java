@@ -40,7 +40,10 @@ public final class ReleaseUpdateCheckerTest {
         release.put("prerelease", false);
         release.getJSONArray("assets").getJSONObject(0).put("state", "new");
         assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
-        release.getJSONArray("assets").getJSONObject(0).put("state", "uploaded").put("name", "source.zip");
+        release.getJSONArray("assets").getJSONObject(0).put("state", "uploaded")
+                .put("name", "DubLift-0.0.9-arm64-v8a-release.apk");
+        assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
+        release.getJSONArray("assets").getJSONObject(0).put("name", "source.zip");
         assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
         release.put("assets", new JSONArray());
         assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
@@ -49,7 +52,8 @@ public final class ReleaseUpdateCheckerTest {
 
     @Test public void supportsArmv7AssetsAndUsesTheReleasePage() throws JSONException {
         JSONObject release = release();
-        release.getJSONArray("assets").getJSONObject(0).put("name", "DubLift-armv7.apk");
+        release.getJSONArray("assets").getJSONObject(0)
+                .put("name", "DubLift-0.0.10-armeabi-v7a-release.apk");
         release.put("html_url", "https://example.com/download.apk");
         ReleaseUpdateChecker.Release update = ReleaseUpdateChecker.findUpdate(release, "0.0.9");
         assertNotNull(update);
@@ -88,6 +92,6 @@ public final class ReleaseUpdateCheckerTest {
         return new JSONObject().put("tag_name", "v0.0.10").put("draft", false).put("prerelease", false)
                 .put("body", "## Download\nInstructions.\n\n## Changelog\n\n- Fix playback\n- Add updates\n\n## Full changelog\nLink")
                 .put("assets", new JSONArray().put(new JSONObject()
-                        .put("name", "DubLift-arm64.apk").put("state", "uploaded")));
+                        .put("name", "DubLift-0.0.10-arm64-v8a-release.apk").put("state", "uploaded")));
     }
 }

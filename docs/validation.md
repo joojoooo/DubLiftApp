@@ -33,8 +33,9 @@ For debug APKs:
 
 ```sh
 ndk="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.2.12479018}"
+version=0.0.0 # use the configured versionName if it differs
 for abi in arm64-v8a armeabi-v7a; do
-  apk="app/build/outputs/apk/debug/app-$abi-debug.apk"
+  apk="app/build/outputs/apk/debug/DubLift-$version-$abi-debug.apk"
   test -s "$apk" || exit 1
   unzip -t "$apk" >/dev/null || exit 1
   "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$apk" || exit 1
@@ -78,7 +79,7 @@ adb shell getconf PAGE_SIZE
 Install the appropriate debug APK, for example on ARM64:
 
 ```sh
-adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+adb install -r app/build/outputs/apk/debug/DubLift-0.0.0-arm64-v8a-debug.apk
 ```
 
 A debug key cannot update an installed release signed with another key.
@@ -111,7 +112,7 @@ Use a test device/profile or account for data loss before uninstalling.
    with the popup open and after dismissing it; the pending popup should survive
    rotation, and a dismissed popup should stay dismissed. Repeat offline and with
    an equal or newer installed version; the dashboard must still load without an
-   update popup. Debug builds default to `1.0.0`; supply version properties as
+   update popup. Debug builds default to `0.0.0`; supply version properties as
    described in [releasing](releasing.md) when testing against a `0.x` release.
 6. On a test device without WebView support or with no enabled WebView provider,
    confirm a native text screen explains why the dashboard cannot be displayed,

@@ -11,8 +11,10 @@ Requires **Android 7.1 (API 25) or newer**. Download the matching APK from
 
 | APK | Android architecture |
 | --- | --- |
-| `DubLift-arm64.apk` | ARM64 (64-bit), `arm64-v8a` |
-| `DubLift-armv7.apk` | ARMv7 (32-bit), `armeabi-v7a` |
+| `DubLift-<version>-arm64-v8a-release.apk` | ARM64 (64-bit), `arm64-v8a` |
+| `DubLift-<version>-armeabi-v7a-release.apk` | ARMv7 (32-bit), `armeabi-v7a` |
+
+The filename includes the release version and Android ABI.
 
 Open the APK and allow your browser or file manager to install apps if Android
 asks. Install new releases over the existing app to keep your settings.

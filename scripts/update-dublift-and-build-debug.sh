@@ -47,13 +47,23 @@ echo "Building ARM64 and ARMv7 debug APKs with DubLift $latest_commit..."
 (cd "$root" && ./gradlew assembleDebug)
 
 for abi in arm64-v8a armeabi-v7a; do
-  apk="$apk_dir/app-$abi-debug.apk"
-  if [[ ! -s "$apk" ]]; then
-    echo "Build completed, but the $abi debug APK is missing: $apk" >&2
+  apk_name=$(python3 - "$apk_dir/output-metadata.json" "$abi" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as metadata_file:
+    metadata = json.load(metadata_file)
+
+for element in metadata.get("elements", []):
+    if any(item.get("filterType") == "ABI" and item.get("value") == sys.argv[2]
+           for item in element.get("filters", [])):
+        print(element["outputFile"])
+        break
+PY
+  )
+  if [[ -z "$apk_name" || ! -s "$apk_dir/$apk_name" ]]; then
+    echo "Build completed, but the versioned $abi debug APK is missing." >&2
     exit 1
   fi
-done
-
-for abi in arm64-v8a armeabi-v7a; do
-  echo "Debug APK ($abi): $apk_dir/app-$abi-debug.apk"
+  echo "Debug APK ($abi): $apk_dir/$apk_name"
 done

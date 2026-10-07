@@ -54,8 +54,11 @@ Gradle produces separate APKs, with no universal APK:
 
 | ABI | Debug output |
 | --- | --- |
-| `arm64-v8a` | `app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` |
-| `armeabi-v7a` | `app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk` |
+| `arm64-v8a` | `app/build/outputs/apk/debug/DubLift-0.0.0-arm64-v8a-debug.apk` |
+| `armeabi-v7a` | `app/build/outputs/apk/debug/DubLift-0.0.0-armeabi-v7a-debug.apk` |
+
+The filename includes the build's version name and Android ABI. Builds default
+to version `0.0.0`; set `releaseVersionName` to use another version.
 
 Debug APKs use the developer's debug signing key and cannot update release
 APKs signed with the release key. Uninstalling to switch signing keys removes

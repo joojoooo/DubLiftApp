@@ -4,8 +4,10 @@ Requires **Android 7.1 (API 25) or newer**. Download one APK from **Assets** bel
 
 | APK | Device |
 | --- | --- |
-| **DubLift-arm64.apk** | ARM64 (64-bit Android); recommended when supported. |
-| **DubLift-armv7.apk** | ARMv7 (32-bit Android). |
+| `DubLift-<version>-arm64-v8a-release.apk` | ARM64 (64-bit Android); recommended when supported. |
+| `DubLift-<version>-armeabi-v7a-release.apk` | ARMv7 (32-bit Android). |
+
+The filename includes the release version and Android ABI.
 
 Each APK includes DubLift, FFmpeg, and ffprobe. No separate tools are needed.
 
