@@ -33,6 +33,10 @@ start only when you select one. **Later** dismisses the prompt for that launch.
 3. Choose a movie or episode in your player and select a DubLift result marked
    with the Italian flag. Keep DubLift running during playback.
 
+On Android TV and Fire TV, the pill dock stays visible. Press **Back** on the
+remote to focus the controls, use the arrows and **Select/OK** to choose one,
+then press **Back** again to return focus to the dashboard.
+
 ## 🌐 LAN access
 
 Connect both devices to the same trusted Wi-Fi network. Find the phone's LAN IP

@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Bitmap;
@@ -34,6 +35,7 @@ import android.security.NetworkSecurityPolicy;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.animation.DecelerateInterpolator;
@@ -86,9 +88,11 @@ public final class MainActivity extends Activity {
     private LinearLayout serverToggle;
     private GradientDrawable statusShape;
     private View statusControl;
+    private View firstDockAction;
     private boolean dockHidden;
     private int scrollTravel;
     private boolean dashboardLoaded;
+    private boolean tvMode;
     private boolean active;
     private boolean serverEnabled = true;
     private String serverStatus = "Server starting";
@@ -100,6 +104,8 @@ public final class MainActivity extends Activity {
                     state.getString("dashboardFirstFailure"));
         }
         diagnostics.record("Activity created");
+        tvMode = isTelevision();
+        diagnostics.record("Television navigation: " + tvMode);
         getWindow().setStatusBarColor(SURFACE);
         getWindow().setNavigationBarColor(SURFACE);
 
@@ -146,6 +152,14 @@ public final class MainActivity extends Activity {
         } else {
             maybeRequestBatteryExemption();
         }
+    }
+
+    private boolean isTelevision() {
+        int uiMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK;
+        PackageManager packageManager = getPackageManager();
+        return uiMode == Configuration.UI_MODE_TYPE_TELEVISION
+                || packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+                || packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION);
     }
 
     @SuppressLint("WebViewApiAvailability") // API 25 uses guarded construction without an AndroidX dependency.
@@ -205,6 +219,7 @@ public final class MainActivity extends Activity {
             }
         });
         dashboard.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
+            if (tvMode) return;
             if (scrollY <= dp(4)) {
                 scrollTravel = 0;
                 showDock();
@@ -485,6 +500,7 @@ public final class MainActivity extends Activity {
                 .setMessage(getString(R.string.dashboard_debug_dialog_message, serverStatus))
                 .setPositiveButton(R.string.dashboard_copy_debug, (dialog, which) -> copyDebugInfo())
                 .setNegativeButton(android.R.string.cancel, null).show());
+        makeDockControlFocusable(statusArea);
         statusControl = statusArea;
         View dot = new View(this);
         statusShape = new GradientDrawable();
@@ -506,6 +522,7 @@ public final class MainActivity extends Activity {
             startServer(DubLiftService.ACTION_RESTART);
             showDock();
         });
+        firstDockAction = restart;
         dock.addView(restart, new LinearLayout.LayoutParams(dp(66), -1));
 
         View battery = dockButton(R.drawable.ic_battery, "Battery", MUTED);
@@ -600,9 +617,8 @@ public final class MainActivity extends Activity {
         button.setOrientation(LinearLayout.VERTICAL);
         button.setGravity(Gravity.CENTER);
         button.setContentDescription(label);
-        TypedValue ripple = new TypedValue();
-        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
-        button.setBackgroundResource(ripple.resourceId);
+        button.setBackgroundResource(dockControlRipple());
+        makeDockControlFocusable(button);
 
         ImageView image = new ImageView(this);
         image.setImageResource(icon);
@@ -620,6 +636,18 @@ public final class MainActivity extends Activity {
         return button;
     }
 
+    private void makeDockControlFocusable(View control) {
+        if (!tvMode) return;
+        control.setFocusable(true);
+        control.setFocusableInTouchMode(true);
+    }
+
+    private int dockControlRipple() {
+        TypedValue ripple = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+        return ripple.resourceId;
+    }
+
     private void setServerToggle(boolean enabled) {
         serverEnabled = enabled;
         String label = enabled ? "Stop" : "Start";
@@ -634,7 +662,7 @@ public final class MainActivity extends Activity {
     }
 
     private void hideDock() {
-        if (dockHidden) return;
+        if (tvMode || dockHidden) return;
         dockHidden = true;
         dock.animate().cancel();
         dock.animate().translationY(dp(86)).alpha(0f).setDuration(190)
@@ -755,6 +783,35 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
+        handleBackNavigation();
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (tvMode && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+                handleBackNavigation();
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private void handleBackNavigation() {
+        if (tvMode) {
+            if (dock != null && dock.hasFocus()) {
+                if (webView != null) {
+                    webView.requestFocus();
+                } else {
+                    super.onBackPressed();
+                }
+            } else if (dock != null) {
+                showDock();
+                View target = firstDockAction != null ? firstDockAction : statusControl;
+                if (target != null && target.requestFocus()) return;
+                if (webView != null) webView.requestFocus();
+            }
+            return;
+        }
         if (webView != null && webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
     }
