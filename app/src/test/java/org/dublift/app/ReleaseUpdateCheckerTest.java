@@ -40,9 +40,6 @@ public final class ReleaseUpdateCheckerTest {
         release.put("prerelease", false);
         release.getJSONArray("assets").getJSONObject(0).put("state", "new");
         assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
-        release.getJSONArray("assets").getJSONObject(0).put("state", "uploaded")
-                .put("name", "DubLift-0.0.9-arm64-v8a-release.apk");
-        assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
         release.getJSONArray("assets").getJSONObject(0).put("name", "source.zip");
         assertNull(ReleaseUpdateChecker.findUpdate(release, "0.0.9"));
         release.put("assets", new JSONArray());
@@ -50,10 +47,10 @@ public final class ReleaseUpdateCheckerTest {
         assertNull(ReleaseUpdateChecker.findUpdate(new JSONObject(), "0.0.9"));
     }
 
-    @Test public void supportsArmv7AssetsAndUsesTheReleasePage() throws JSONException {
+    @Test public void acceptsAnyApkAssetAndUsesTheReleasePage() throws JSONException {
         JSONObject release = release();
         release.getJSONArray("assets").getJSONObject(0)
-                .put("name", "DubLift-0.0.10-armeabi-v7a-release.apk");
+                .put("name", "custom-app-build.apk");
         release.put("html_url", "https://example.com/download.apk");
         ReleaseUpdateChecker.Release update = ReleaseUpdateChecker.findUpdate(release, "0.0.9");
         assertNotNull(update);

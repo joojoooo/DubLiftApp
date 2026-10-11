@@ -63,6 +63,7 @@ import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final String DASHBOARD = "http://127.0.0.1:7000/";
+    private static final long UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L;
     private static final int SURFACE = Color.rgb(20, 34, 51);
     private static final int ACCENT = Color.rgb(79, 222, 183);
     private static final int MUTED = Color.rgb(211, 224, 235);
@@ -76,6 +77,7 @@ public final class MainActivity extends Activity {
     private AlertDialog updateDialog;
     private String installedVersion;
     private boolean updateCheckComplete;
+    private boolean updateChecking;
     private boolean resumed;
     private WebView webView;
     private FrameLayout dashboardPage;
@@ -545,15 +547,33 @@ public final class MainActivity extends Activity {
     }
 
     private void checkForUpdate() {
+        if (updateChecking || installedVersion == null) return;
+        updateChecking = true;
+        getSharedPreferences("runtime", MODE_PRIVATE).edit()
+                .putLong("lastUpdateCheck", System.currentTimeMillis()).apply();
         updateChecks.execute(() -> {
             ReleaseUpdateChecker.Release release = ReleaseUpdateChecker.check(installedVersion);
             handler.post(() -> {
+                updateChecking = false;
                 if (isFinishing() || isDestroyed()) return;
                 updateCheckComplete = true;
-                availableUpdate = release;
-                showAvailableUpdate();
+                if (release != null) {
+                    availableUpdate = release;
+                    showAvailableUpdate();
+                }
             });
         });
+    }
+
+    private void maybeCheckForUpdate() {
+        if (installedVersion == null || updateChecking || updateDialog != null || availableUpdate != null) {
+            return;
+        }
+        long lastCheck = getSharedPreferences("runtime", MODE_PRIVATE).getLong("lastUpdateCheck", 0);
+        long now = System.currentTimeMillis();
+        if (lastCheck == 0 || now - lastCheck >= UPDATE_CHECK_INTERVAL_MS || now < lastCheck) {
+            checkForUpdate();
+        }
     }
 
     private void showAvailableUpdate() {
@@ -589,6 +609,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         resumed = true;
         showAvailableUpdate();
+        maybeCheckForUpdate();
     }
 
     @Override protected void onPause() {

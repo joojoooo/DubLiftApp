@@ -83,13 +83,11 @@ final class ReleaseUpdateChecker {
                 || !isNewer(tag, installedVersion)) return null;
         JSONArray assets = response.optJSONArray("assets");
         if (assets == null) return null;
-        String version = tag.startsWith("v") ? tag.substring(1) : tag;
         for (int i = 0; i < assets.length(); i++) {
             JSONObject asset = assets.optJSONObject(i);
             if (asset == null || !"uploaded".equals(asset.optString("state"))) continue;
-            String name = asset.optString("name");
-            if (("DubLift-" + version + "-arm64-v8a-release.apk").equals(name)
-                    || ("DubLift-" + version + "-armeabi-v7a-release.apk").equals(name)) {
+            String name = asset.optString("name", "");
+            if (name.endsWith(".apk")) {
                 String body = response.isNull("body") ? "" : response.optString("body", "");
                 return new Release(tag, changelog(body));
             }
