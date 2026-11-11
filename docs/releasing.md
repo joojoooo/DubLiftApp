@@ -61,9 +61,9 @@ the same filenames before publishing.
 1. Review and commit the Android changes and any intended DubLift submodule
    update. Core commits must be available in the submodule's remote before
    CI can check them out. Regenerate icons if the core icon changed.
-2. Complete [validation](validation.md) and check the short
-   [release-notes template](../.github/release-notes.md) against installation
-   requirements and asset names.
+2. Run the relevant automated checks in [validation](validation.md) and review
+   the short [release-notes template](../.github/release-notes.md) against
+   installation requirements and asset names.
 3. Push the app commit and a new compliant tag. For a `1.0.0` release:
 
    ```sh
@@ -112,6 +112,6 @@ for apk in "DubLift-$version-arm64-v8a-release.apk" \
 done
 ```
 
-Compare signing certificates with a previous release and test an in-place
-update on a device to confirm settings survive. Check both architectures
-using the device and playback checks in [validation](validation.md).
+Compare signing certificates with a previous release. For troubleshooting
+installation or playback issues, see the optional device checks in
+[validation](validation.md).

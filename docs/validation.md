@@ -1,5 +1,12 @@
 # Validation
 
+This guide is a reference for relevant checks, not a checklist to repeat after
+every change. Manual device testing and APK inspection are optional unless
+specifically requested or needed to investigate a reported problem. Previously
+verified features, including APK updates and cleanup, do not need repeated
+device validation for routine changes. The maintainer otherwise relies on
+normal app use to notice runtime regressions.
+
 Run commands from the app repository root with the
 [build prerequisites](building.md) installed and `ANDROID_HOME` set.
 
@@ -21,10 +28,10 @@ fresh native rebuild after toolchain changes.
 
 Lint reports appear under `app/build/reports/`. Review warnings as well as
 errors. Gradle's JVM unit tests cover version comparison, release/changelog
-parsing, and bounded/redacted dashboard diagnostics; the Python tests cover the
-release-note commit range, first releases, and reruns. There are no Android
-instrumentation tests, so the popup lifecycle
-and browser handoff still require the device checks below.
+parsing, trusted release-asset URLs and ABI selection, and bounded/redacted
+dashboard diagnostics; the Python tests cover the release-note commit range,
+first releases, and reruns. There are no Android instrumentation tests. The
+optional device checks below can help investigate runtime issues.
 Core server checks belong to [DubLift's validation guide](../DubLift/docs/validation.md).
 
 ## APK inspection
@@ -64,7 +71,7 @@ the APK uses compressed native entries that Android extracts before execution.
 See [Android's page-size guide](https://developer.android.com/guide/practices/page-sizes)
 for the requirements.
 
-## Device smoke test
+## Optional device checks
 
 Use a device whose Android ABI matches the APK. An x86-only emulator cannot
 execute the bundled ARM programs. With Android platform-tools installed:
@@ -104,16 +111,12 @@ Use a test device/profile or account for data loss before uninstalling.
 4. Check boot behavior while enabled and after using **Stop**: the receiver
    attempts to restore an enabled server, while a stopped server stays off
    until started again. Record any Android/OEM restrictions.
-5. With a build whose `releaseVersionName` is lower than the latest GitHub
-   release, confirm startup shows a scrollable update popup after the permission
-   screens. Check the installed/available versions and changelog. **Open release
-   page** must open a browser on that release's page without downloading an APK.
-   **Later**, Back, or tapping outside dismisses it for the current launch. Rotate
-   with the popup open and after dismissing it; the pending popup should survive
-   rotation, and a dismissed popup should stay dismissed. Repeat offline and with
-   an equal or newer installed version; the dashboard must still load without an
-   update popup. Debug builds default to `0.0.0`; supply version properties as
-   described in [releasing](releasing.md) when testing against a `0.x` release.
+5. When investigating an update issue, use **Updates** to check manually and
+   **Download and install** to exercise the affected behavior. An in-place update
+   requires matching signing keys and a newer version; see
+   [release version properties](releasing.md). APK downloading, installation, and
+   cleanup have already been verified on a phone and do not need to be retested
+   for routine app changes.
 6. On a test device without WebView support or with no enabled WebView provider,
    confirm a native text screen explains why the dashboard cannot be displayed,
    suggests Chrome or Android System WebView, and shows a selectable dashboard URL
@@ -162,7 +165,6 @@ Use a test device/profile or account for data loss before uninstalling.
   ARM64 device (`getconf PAGE_SIZE` returns `16384`) with page-size compatibility
   mode disabled. Also check a 4 KB device (`4096`) for backward compatibility.
 
-Record which device, Android version, ABI, and app/core revisions were
-checked. Report unavailable hardware, skipped checks, and provider failures
-separately from build results. Keep private configs, logs, and provider
-credentials out of tracked files.
+When performing optional device checks, record the device, Android version,
+ABI, app/core revisions, and relevant results. Keep private configs, logs,
+and provider credentials out of tracked files.

@@ -60,10 +60,14 @@
 ## Validation and documentation
 
 - Run `./gradlew assembleDebug lint test` for Android changes; use
-  `./gradlew assembleRelease` for release packaging changes. Follow
-  [validation](docs/validation.md) for APK inspection and device checks.
+  `./gradlew assembleRelease` for release packaging changes.
+  [Validation](docs/validation.md) is a reference for APK inspection and optional
+  device checks. Do not repeat manual device tests for routine changes or
+  previously verified features, including APK updates and cleanup. Run them
+  only when requested or when investigating a reported problem; the maintainer
+  otherwise relies on normal app use to notice runtime regressions.
   Gradle JVM tests cover release-update parsing and version comparison; there
-  are no Android instrumentation tests. Report device checks that could not run.
+  are no Android instrumentation tests.
 - Keep `README.md` concise and focused on Android users. Maintain one canonical
   guide for each of building, releasing, and validation; link instead of
   duplicating procedures. Keep `.github/release-notes.md` a short download and

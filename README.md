@@ -20,8 +20,15 @@ Open the APK and allow your browser or file manager to install apps if Android
 asks. Install new releases over the existing app to keep your settings.
 
 On startup, DubLift checks for a newer GitHub release and shows its changelog.
-**Open release page** opens your browser so you can choose an APK; downloads
-start only when you select one. **Later** dismisses the prompt for that launch.
+Choose **Download and install** to download the matching APK and open Android's
+installer directly. Allow DubLift to install unknown apps if prompted, then
+confirm the update. The downloaded APK is deleted automatically after installation.
+**Later** dismisses the prompt for that launch.
+
+Use **Updates** in the app's dock to check manually, including on Android TV and
+Fire TV. Downloads continue in the background; press **Updates** to return to
+the progress or retry installation. You can cancel a download or delete a saved
+APK from that dialog. **Release page** remains available for manual downloads.
 
 ## 🚀 Usage
 

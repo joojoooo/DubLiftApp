@@ -5,6 +5,7 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -51,12 +52,14 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,6 +81,24 @@ public final class MainActivity extends Activity {
     private String installedVersion;
     private boolean updateCheckComplete;
     private boolean updateChecking;
+    private boolean manualUpdateCheck;
+    private ApkUpdateManager.Progress downloadProgress;
+    private AlertDialog downloadDialog;
+    private AlertDialog updateMessageDialog;
+    private String pendingUpdateMessage;
+    private AlertDialog installPermissionDialog;
+    private ProgressBar downloadBar;
+    private TextView downloadStatus;
+    private boolean downloadDialogReady;
+    private boolean downloadUiHidden;
+    private boolean downloadPolling;
+    private boolean autoInstallDownload;
+    private boolean installPreparing;
+    private boolean awaitingInstallPermission;
+    private boolean installerOpen;
+    private static final int INSTALL_PERMISSION_REQUEST = 2;
+    private static final int INSTALL_APK_REQUEST = 3;
+    private final Runnable downloadPoll = this::pollDownload;
     private boolean resumed;
     private WebView webView;
     private FrameLayout dashboardPage;
@@ -133,9 +154,16 @@ public final class MainActivity extends Activity {
 
         if (state != null) {
             updateCheckComplete = state.getBoolean("updateCheckComplete");
+            manualUpdateCheck = state.getBoolean("manualUpdateCheck");
+            autoInstallDownload = state.getBoolean("autoInstallDownload");
+            awaitingInstallPermission = state.getBoolean("awaitingInstallPermission");
+            installerOpen = state.getBoolean("installerOpen");
+            downloadUiHidden = state.getBoolean("downloadUiHidden");
+            pendingUpdateMessage = state.getString("updateMessage");
             String tag = state.getString("updateTag");
             if (tag != null) {
-                availableUpdate = new ReleaseUpdateChecker.Release(tag, state.getString("updateChangelog", ""));
+                availableUpdate = new ReleaseUpdateChecker.Release(tag, state.getString("updateChangelog", ""),
+                        state.getString("updateApkUrl"), state.getString("updateAbi"));
             }
         }
         try {
@@ -143,7 +171,8 @@ public final class MainActivity extends Activity {
         } catch (PackageManager.NameNotFoundException ignored) {
             updateCheckComplete = true;
         }
-        if (!updateCheckComplete) checkForUpdate();
+        ApkUpdateManager.cleanupInstalled(this);
+        if (!updateCheckComplete && !ApkUpdateManager.hasDownload(this)) checkForUpdate(manualUpdateCheck);
 
         startServer(DubLiftService.ACTION_START);
         active = true;
@@ -525,11 +554,25 @@ public final class MainActivity extends Activity {
             showDock();
         });
         firstDockAction = restart;
-        dock.addView(restart, new LinearLayout.LayoutParams(dp(66), -1));
+        dock.addView(restart, new LinearLayout.LayoutParams(dp(62), -1));
 
         View battery = dockButton(R.drawable.ic_battery, "Battery", MUTED);
         battery.setOnClickListener(v -> requestBatteryExemption());
-        dock.addView(battery, new LinearLayout.LayoutParams(dp(66), -1));
+        dock.addView(battery, new LinearLayout.LayoutParams(dp(62), -1));
+
+        View updates = dockButton(R.drawable.ic_update, "Updates", MUTED);
+        updates.setContentDescription("Check for updates");
+        if (Build.VERSION.SDK_INT >= 26) updates.setTooltipText("Check for updates");
+        updates.setOnClickListener(v -> {
+            showDock();
+            if (ApkUpdateManager.hasDownload(this)) {
+                downloadUiHidden = false;
+                pollDownload();
+            } else {
+                checkForUpdate(true);
+            }
+        });
+        dock.addView(updates, new LinearLayout.LayoutParams(dp(62), -1));
 
         serverToggle = dockButton(R.drawable.ic_stop, "Stop", STOPPED);
         serverToggle.setOnClickListener(v -> {
@@ -543,56 +586,330 @@ public final class MainActivity extends Activity {
             }
             showDock();
         });
-        dock.addView(serverToggle, new LinearLayout.LayoutParams(dp(66), -1));
+        dock.addView(serverToggle, new LinearLayout.LayoutParams(dp(62), -1));
     }
 
-    private void checkForUpdate() {
-        if (updateChecking || installedVersion == null) return;
+    private void checkForUpdate(boolean manual) {
+        if (updateChecking) {
+            manualUpdateCheck |= manual;
+            if (manual) Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (installedVersion == null) {
+            if (manual) showUpdateMessage("Could not read the installed app version.");
+            return;
+        }
+        if (updateDialog != null) updateDialog.dismiss();
+        availableUpdate = null;
         updateChecking = true;
+        manualUpdateCheck = manual;
+        updateCheckComplete = false;
+        if (manual) Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show();
         getSharedPreferences("runtime", MODE_PRIVATE).edit()
                 .putLong("lastUpdateCheck", System.currentTimeMillis()).apply();
         updateChecks.execute(() -> {
-            ReleaseUpdateChecker.Release release = ReleaseUpdateChecker.check(installedVersion);
+            ReleaseUpdateChecker.Release release = null;
+            boolean failed = false;
+            try {
+                release = ReleaseUpdateChecker.check(installedVersion, Build.SUPPORTED_ABIS);
+            } catch (IOException | org.json.JSONException | RuntimeException failure) {
+                failed = true;
+            }
+            ReleaseUpdateChecker.Release result = release;
+            boolean checkFailed = failed;
             handler.post(() -> {
                 updateChecking = false;
                 if (isFinishing() || isDestroyed()) return;
                 updateCheckComplete = true;
-                if (release != null) {
-                    availableUpdate = release;
+                if (result != null) {
+                    availableUpdate = result;
                     showAvailableUpdate();
+                } else if (manualUpdateCheck) {
+                    showUpdateMessage(checkFailed
+                            ? "Could not check for updates. Check your internet connection and try again."
+                            : "DubLift " + installedVersion + " is up to date.");
                 }
+                manualUpdateCheck = false;
             });
         });
     }
 
     private void maybeCheckForUpdate() {
-        if (installedVersion == null || updateChecking || updateDialog != null || availableUpdate != null) {
+        if (installedVersion == null || updateChecking || updateDialog != null || availableUpdate != null
+                || ApkUpdateManager.hasDownload(this)) {
             return;
         }
         long lastCheck = getSharedPreferences("runtime", MODE_PRIVATE).getLong("lastUpdateCheck", 0);
         long now = System.currentTimeMillis();
         if (lastCheck == 0 || now - lastCheck >= UPDATE_CHECK_INTERVAL_MS || now < lastCheck) {
-            checkForUpdate();
+            checkForUpdate(false);
         }
     }
 
     private void showAvailableUpdate() {
         // Wait until notification/battery permission screens have returned control to the app.
         if (!resumed || !hasWindowFocus() || isFinishing() || isDestroyed()
-                || availableUpdate == null || updateDialog != null) return;
+                || availableUpdate == null || updateDialog != null || ApkUpdateManager.hasDownload(this)) return;
         ReleaseUpdateChecker.Release release = availableUpdate;
-        updateDialog = new AlertDialog.Builder(this)
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("DubLift update available")
                 .setMessage("Installed: " + installedVersion + "\nAvailable: " + release.version()
+                        + (release.apkUrl == null ? "\n\nNo compatible APK is available for this device."
+                        : "\nAPK: " + release.abi)
                         + "\n\nWhat's new\n\n" + release.changelog)
-                .setPositiveButton("Open release page", (dialog, which) -> openReleasePage(release.pageUrl()))
-                .setNegativeButton("Later", null)
-                .create();
+                .setPositiveButton(release.apkUrl == null ? "Open release page" : "Download and install",
+                        (dialog, which) -> {
+                            if (release.apkUrl == null) openReleasePage(release.pageUrl());
+                            else downloadUpdate(release);
+                        })
+                .setNegativeButton("Later", null);
+        if (release.apkUrl != null) {
+            builder.setNeutralButton("Release page", (dialog, which) -> openReleasePage(release.pageUrl()));
+        }
+        updateDialog = builder.create();
         updateDialog.setOnDismissListener(dialog -> {
             availableUpdate = null;
             updateDialog = null;
         });
         updateDialog.show();
+    }
+
+    private void showUpdateMessage(String message) {
+        pendingUpdateMessage = message;
+        showPendingUpdateMessage();
+    }
+
+    private void showPendingUpdateMessage() {
+        if (pendingUpdateMessage == null || updateMessageDialog != null || !resumed
+                || !hasWindowFocus() || isFinishing() || isDestroyed()) return;
+        updateMessageDialog = new AlertDialog.Builder(this).setTitle("DubLift updates")
+                .setMessage(pendingUpdateMessage).setPositiveButton(android.R.string.ok, null).create();
+        updateMessageDialog.setOnDismissListener(dialog -> {
+            updateMessageDialog = null;
+            pendingUpdateMessage = null;
+        });
+        updateMessageDialog.show();
+    }
+
+    private void downloadUpdate(ReleaseUpdateChecker.Release release) {
+        try {
+            ApkUpdateManager.download(this, release);
+            downloadProgress = null;
+            autoInstallDownload = true;
+            downloadUiHidden = false;
+            pollDownload();
+        } catch (IOException | RuntimeException failure) {
+            showUpdateMessage("Could not start the download. " + failure.getMessage());
+        }
+    }
+
+    private void pollDownload() {
+        handler.removeCallbacks(downloadPoll);
+        if (!resumed || downloadPolling || !ApkUpdateManager.hasDownload(this)) return;
+        downloadPolling = true;
+        // Bind the result to this download; cancel/retry can replace it while a query is in flight.
+        long downloadId = ApkUpdateManager.downloadId(this);
+        updateChecks.execute(() -> {
+            ApkUpdateManager.Progress progress = null;
+            String error = null;
+            try {
+                progress = ApkUpdateManager.progress(this);
+            } catch (IOException | RuntimeException failure) {
+                error = failure.getMessage();
+            }
+            ApkUpdateManager.Progress result = progress;
+            String failure = error;
+            handler.post(() -> {
+                downloadPolling = false;
+                if (isFinishing() || isDestroyed() || !ApkUpdateManager.hasDownload(this)) return;
+                if (downloadId != ApkUpdateManager.downloadId(this)) {
+                    pollDownload();
+                    return;
+                }
+                downloadProgress = result;
+                if (result == null || result.status == DownloadManager.STATUS_FAILED) {
+                    ApkUpdateManager.clear(this);
+                    autoInstallDownload = false;
+                    closeDownloadDialog();
+                    showUpdateMessage("Update download failed. "
+                            + (result != null && result.reason == DownloadManager.ERROR_INSUFFICIENT_SPACE
+                            ? "Free some storage and try again."
+                            : "Check your connection and storage, then use Updates to try again.")
+                            + (failure == null ? "" : "\n" + failure));
+                    return;
+                }
+                showDownloadState();
+                if (resumed && result.status != DownloadManager.STATUS_SUCCESSFUL) {
+                    handler.postDelayed(downloadPoll, 1000);
+                }
+            });
+        });
+    }
+
+    private void showDownloadState() {
+        if (!resumed || (!hasWindowFocus() && downloadDialog == null) || isFinishing() || isDestroyed()
+                || !ApkUpdateManager.hasDownload(this) || downloadProgress == null || downloadUiHidden || installPreparing
+                || awaitingInstallPermission || installerOpen) return;
+        boolean ready = downloadProgress.status == DownloadManager.STATUS_SUCCESSFUL;
+        if (ready && autoInstallDownload) {
+            autoInstallDownload = false;
+            closeDownloadDialog();
+            installDownloadedUpdate();
+            return;
+        }
+        if (downloadDialog != null && downloadDialogReady != ready) closeDownloadDialog();
+        if (downloadDialog == null) {
+            downloadDialogReady = ready;
+            AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                    .setTitle(ready ? "Update ready to install" : "Downloading DubLift update");
+            if (ready) {
+                builder.setMessage("DubLift " + ApkUpdateManager.tag(this)
+                                + " is downloaded. Android will ask you to confirm installation."
+                                + "\n\nThe APK is deleted automatically after the app is updated.")
+                        .setPositiveButton("Install update", (dialog, which) -> installDownloadedUpdate())
+                        .setNegativeButton("Delete download", (dialog, which) -> {
+                            ApkUpdateManager.clear(this);
+                            downloadProgress = null;
+                        })
+                        .setNeutralButton("Later", null);
+            } else {
+                LinearLayout content = new LinearLayout(this);
+                content.setOrientation(LinearLayout.VERTICAL);
+                content.setPadding(dp(24), dp(12), dp(24), 0);
+                downloadStatus = new TextView(this);
+                content.addView(downloadStatus);
+                downloadBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+                content.addView(downloadBar, new LinearLayout.LayoutParams(-1, dp(32)));
+                builder.setView(content).setNegativeButton("Cancel download", (dialog, which) -> {
+                    autoInstallDownload = false;
+                    ApkUpdateManager.clear(this);
+                    downloadProgress = null;
+                });
+            }
+            downloadDialog = builder.create();
+            downloadDialog.setOnDismissListener(dialog -> {
+                downloadDialog = null;
+                if (!installPreparing) downloadUiHidden = true;
+                autoInstallDownload = false;
+            });
+            downloadDialog.show();
+        }
+        if (!ready && downloadBar != null) {
+            boolean known = downloadProgress.total > 0;
+            int percent = known ? (int) (100 * downloadProgress.downloaded / downloadProgress.total) : 0;
+            downloadBar.setIndeterminate(!known);
+            downloadBar.setProgress(percent);
+            downloadStatus.setText(downloadProgress.status == DownloadManager.STATUS_PAUSED
+                    ? "Download paused. Android will retry when the connection or storage is available."
+                    : known ? percent + "% downloaded" : "Waiting for the download…");
+        }
+    }
+
+    private void closeDownloadDialog() {
+        if (downloadDialog == null) return;
+        downloadDialog.setOnDismissListener(null);
+        downloadDialog.dismiss();
+        downloadDialog = null;
+    }
+
+    private void installDownloadedUpdate() {
+        if (installPreparing || installerOpen || !ApkUpdateManager.hasDownload(this)) return;
+        installPreparing = true;
+        updateChecks.execute(() -> {
+            String error = null;
+            try {
+                ApkUpdateManager.validateApk(this);
+            } catch (IOException | PackageManager.NameNotFoundException | RuntimeException failure) {
+                error = failure.getMessage();
+            }
+            String failure = error;
+            handler.post(() -> {
+                installPreparing = false;
+                if (isFinishing() || isDestroyed()) return;
+                if (failure != null) {
+                    ApkUpdateManager.clear(this);
+                    downloadProgress = null;
+                    showUpdateMessage("Cannot install the update. " + failure);
+                } else if (!resumed || !hasWindowFocus()) {
+                    autoInstallDownload = true;
+                } else {
+                    requestUpdateInstallation();
+                }
+            });
+        });
+    }
+
+    private void requestUpdateInstallation() {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            installPermissionDialog = new AlertDialog.Builder(this).setTitle("Allow DubLift updates")
+                    .setMessage("Allow DubLift to install apps in the next system screen, then return here. "
+                            + "On Fire TV this may be under My Fire TV → Developer options → Install unknown apps.")
+                    .setPositiveButton("Open settings", (dialog, which) -> {
+                        awaitingInstallPermission = true;
+                        try {
+                            startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName())), INSTALL_PERMISSION_REQUEST);
+                        } catch (ActivityNotFoundException | SecurityException unavailable) {
+                            try {
+                                startActivityForResult(new Intent(Settings.ACTION_SECURITY_SETTINGS),
+                                        INSTALL_PERMISSION_REQUEST);
+                            } catch (ActivityNotFoundException | SecurityException missing) {
+                                awaitingInstallPermission = false;
+                                showUpdateMessage("Open your device settings and allow DubLift to install unknown apps, "
+                                        + "then return and press Updates.");
+                            }
+                        }
+                    }).setNegativeButton(android.R.string.cancel, null).create();
+            installPermissionDialog.setOnDismissListener(dialog -> installPermissionDialog = null);
+            installPermissionDialog.show();
+            return;
+        }
+        launchUpdateInstaller();
+    }
+
+    @SuppressWarnings("deprecation") // ACTION_INSTALL_PACKAGE and a content grant work on API 25 and TV installers.
+    private void launchUpdateInstaller() {
+        Uri apk = ApkUpdateManager.apkUri(this);
+        Intent install = new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(apk, ApkUpdateManager.MIME_TYPE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .putExtra(Intent.EXTRA_RETURN_RESULT, true);
+        install.setClipData(ClipData.newRawUri("DubLift update", apk));
+        installerOpen = true;
+        try {
+            startActivityForResult(install, INSTALL_APK_REQUEST);
+        } catch (ActivityNotFoundException | SecurityException unavailable) {
+            try {
+                // Some TV firmware only registers its installer for ACTION_VIEW.
+                startActivityForResult(new Intent(install).setAction(Intent.ACTION_VIEW), INSTALL_APK_REQUEST);
+            } catch (ActivityNotFoundException | SecurityException missing) {
+                installerOpen = false;
+                showUpdateMessage("No system APK installer is available. Enable app installation in device settings "
+                        + "and press Updates to retry.");
+            }
+        }
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == INSTALL_PERMISSION_REQUEST) {
+            awaitingInstallPermission = false;
+            if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) {
+                autoInstallDownload = true;
+                downloadUiHidden = false;
+            } else {
+                showUpdateMessage("Installation permission was not granted. Allow DubLift to install unknown apps "
+                        + "in device settings, then press Updates to retry.");
+            }
+        } else if (requestCode == INSTALL_APK_REQUEST) {
+            installerOpen = false;
+            // Keep an unsuccessful/cancelled install available for retry or explicit deletion.
+            // MY_PACKAGE_REPLACED handles success even when installation kills this process.
+            ApkUpdateManager.cleanupInstalled(this);
+            if (ApkUpdateManager.hasDownload(this)) {
+                Toast.makeText(this, "Update not installed. Press Updates to retry or delete the download.",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void openReleasePage(String url) {
@@ -608,18 +925,26 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        ApkUpdateManager.cleanupInstalled(this);
+        pollDownload();
+        showPendingUpdateMessage();
         showAvailableUpdate();
         maybeCheckForUpdate();
     }
 
     @Override protected void onPause() {
         resumed = false;
+        handler.removeCallbacks(downloadPoll);
         super.onPause();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) showAvailableUpdate();
+        if (hasFocus) {
+            showPendingUpdateMessage();
+            showAvailableUpdate();
+            showDownloadState();
+        }
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -627,9 +952,17 @@ public final class MainActivity extends Activity {
         state.putStringArrayList("dashboardDiagnosticEvents", diagnostics.events());
         state.putString("dashboardFirstFailure", diagnostics.firstFailure());
         state.putBoolean("updateCheckComplete", updateCheckComplete);
+        state.putBoolean("manualUpdateCheck", manualUpdateCheck);
+        state.putBoolean("autoInstallDownload", autoInstallDownload || installPreparing);
+        state.putBoolean("awaitingInstallPermission", awaitingInstallPermission);
+        state.putBoolean("installerOpen", installerOpen);
+        state.putBoolean("downloadUiHidden", downloadUiHidden);
+        state.putString("updateMessage", pendingUpdateMessage);
         if (availableUpdate != null) {
             state.putString("updateTag", availableUpdate.tag);
             state.putString("updateChangelog", availableUpdate.changelog);
+            state.putString("updateApkUrl", availableUpdate.apkUrl);
+            state.putString("updateAbi", availableUpdate.abi);
         }
     }
 
@@ -842,6 +1175,12 @@ public final class MainActivity extends Activity {
         checks.shutdownNow();
         updateChecks.shutdownNow();
         if (updateDialog != null) updateDialog.dismiss();
+        closeDownloadDialog();
+        if (updateMessageDialog != null) {
+            updateMessageDialog.setOnDismissListener(null);
+            updateMessageDialog.dismiss();
+        }
+        if (installPermissionDialog != null) installPermissionDialog.dismiss();
         handler.removeCallbacksAndMessages(null);
         if (webView != null) webView.destroy();
         super.onDestroy();
